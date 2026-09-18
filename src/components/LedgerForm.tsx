@@ -19,10 +19,14 @@ export default function LedgerForm({
 }) {
   const router = useRouter();
 
-  // ---- one-time setup: whoever opens this first while no password is set
-  // yet claims it. Meant to be 喑糖浆, opening this page himself -- the
-  // password is never echoed back or logged anywhere, only its hash is
-  // stored, so the site owner has no way to see it through normal use. ----
+  // ---- one-time setup: gated by an admin password (known only to the
+  // site owner, shared privately with 喑糖浆) so a random member can't
+  // race to claim this slot for themselves. Once someone submits the
+  // right admin password and claims it, the server always refuses again
+  // -- the ledger password itself is never echoed back or logged
+  // anywhere, only its hash is stored, so the site owner has no way to
+  // see it through normal use. ----
+  const [setupAdminPassword, setSetupAdminPassword] = useState("");
   const [setupPassword, setSetupPassword] = useState("");
   const [setupConfirm, setSetupConfirm] = useState("");
   const [setupStatus, setSetupStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -30,6 +34,11 @@ export default function LedgerForm({
 
   async function handleSetup(e: React.FormEvent) {
     e.preventDefault();
+    if (!setupAdminPassword) {
+      setSetupError("先输入管理员密码");
+      setSetupStatus("error");
+      return;
+    }
     if (setupPassword.length < 4) {
       setSetupError("密码至少 4 位");
       setSetupStatus("error");
@@ -46,7 +55,7 @@ export default function LedgerForm({
       const resp = await fetch("/api/fund/ledger/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: setupPassword }),
+        body: JSON.stringify({ adminPassword: setupAdminPassword, password: setupPassword }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -54,6 +63,7 @@ export default function LedgerForm({
         setSetupStatus("error");
         return;
       }
+      setSetupAdminPassword("");
       setSetupPassword("");
       setSetupConfirm("");
       router.refresh();
@@ -140,9 +150,18 @@ export default function LedgerForm({
         </p>
         <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
           还没人设置过流水密码，这一步只需要做一次——设置之后这里会变成「填写流水」表单，每次提交都要输
-          密码。密码只有设置的人自己知道，不会被记录或显示在任何地方，包括给网站所有者看。
+          密码。密码只有设置的人自己知道，不会被记录或显示在任何地方，包括给网站所有者看。设置前需要先输
+          一个管理员密码（找网站管理员单独要），防止别人抢先设置。
         </p>
-        <form onSubmit={handleSetup} className="mt-4 grid gap-3 sm:grid-cols-3">
+        <form onSubmit={handleSetup} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <input
+            type="password"
+            value={setupAdminPassword}
+            onChange={(e) => setSetupAdminPassword(e.target.value)}
+            placeholder="管理员密码"
+            className={inputClass}
+            autoComplete="off"
+          />
           <input
             type="password"
             value={setupPassword}

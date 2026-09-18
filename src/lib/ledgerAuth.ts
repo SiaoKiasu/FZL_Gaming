@@ -21,3 +21,13 @@ export function verifyPassword(password: string, stored: string): boolean {
   if (candidate.length !== derived.length) return false;
   return timingSafeEqual(candidate, derived);
 }
+
+// Plain (unhashed) constant-time comparison for the setup admin password --
+// that one lives only in an env var (LEDGER_SETUP_ADMIN_PASSWORD), not the
+// database, so there's no stored hash to check against.
+export function verifyPlain(candidate: string, expected: string): boolean {
+  const a = Buffer.from(candidate);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
