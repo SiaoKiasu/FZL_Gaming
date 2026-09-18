@@ -22,6 +22,11 @@ const RANKED_QUEUES: Record<number, string> = { 420: "单双排", 440: "灵活�
 const PAGE = 20;
 const MAX_SCAN_DEFAULT = 400;
 const WANT_DEFAULT = 60;
+const REQUEST_GAP_MS = 1500; // matches lol_ranked_sync's SLEEP — don't lower this, it exists to avoid Tencent's risk control
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export class SgpAuthError extends Error {}
 
@@ -98,7 +103,10 @@ export async function fetchPlayerRosterGames(
 
   const got = new Map<string, Json>();
   let start = 0;
+  let firstPage = true;
   while (got.size < want && start < maxScan) {
+    if (!firstPage) await sleep(REQUEST_GAP_MS);
+    firstPage = false;
     const games = await fetchPage(token, puuid, start);
     if (!games.length) break;
 
@@ -227,7 +235,8 @@ export async function syncAllRosterGames(
   const allGames = new Map<string, Json>();
   const perPlayer: { name: string; scanned: number; found: number }[] = [];
 
-  for (const member of matchesRoster) {
+  for (const [i, member] of matchesRoster.entries()) {
+    if (i > 0) await sleep(REQUEST_GAP_MS);
     const { games, scanned } = await fetchPlayerRosterGames(token, member.puuid, opts);
     let foundNew = 0;
     for (const [gameId, g] of games) {
