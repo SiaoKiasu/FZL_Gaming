@@ -86,6 +86,28 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="mx-auto max-w-6xl px-6 pb-16">
+        <Link
+          href="/fund"
+          className="group flex flex-col items-start justify-between gap-4 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 transition hover:border-[var(--gold)]/60 sm:flex-row sm:items-center"
+        >
+          <div>
+            <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--gold)]">
+              Team Prize Fund
+            </p>
+            <h2 className="font-display mt-2 text-2xl font-bold">
+              峡谷基金
+            </h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              奖金池分配规则、缴费情况、月度结算与收支流水 —— 全部数据实时可查。
+            </p>
+          </div>
+          <span className="rounded-sm border border-[var(--gold)]/40 px-4 py-2 text-sm font-semibold text-[var(--gold)] transition group-hover:bg-[var(--gold)] group-hover:text-[#0a0f1e]">
+            查看详情 →
+          </span>
+        </Link>
+      </section>
+
       <section className="mx-auto max-w-6xl px-6 pb-24">
         <h2 className="font-display mb-6 text-2xl font-bold">功能规划</h2>
         <div className="grid gap-4 sm:grid-cols-3">

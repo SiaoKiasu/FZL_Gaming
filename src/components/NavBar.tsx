@@ -3,6 +3,7 @@ import Link from "next/link";
 const links = [
   { href: "/", label: "首页" },
   { href: "/roster", label: "选手名单" },
+  { href: "/fund", label: "峡谷基金" },
 ];
 
 const comingSoon = ["视频", "数据统计", "赛程"];

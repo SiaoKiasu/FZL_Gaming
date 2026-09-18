@@ -9,6 +9,18 @@
   --foreground: #eef1f8;
   --muted: #8a93ab;
   --border: rgba(231, 182, 85, 0.25);
+
+  /* categorical (validated against --bg-panel #0f172e, dark) */
+  --series-1: #3987e5; /* blue */
+  --series-2: #d95926; /* orange */
+  --series-3: #199e70; /* aqua */
+  --series-4: #c98500; /* yellow */
+  --series-5: #d55181; /* magenta */
+
+  /* status (fixed, never themed) */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
 }
 
 @theme inline {
