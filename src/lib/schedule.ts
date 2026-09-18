@@ -1,0 +1,92 @@
+import "server-only";
+
+import { sql } from "@vercel/postgres";
+
+export { POSITIONS, POSITION_LABEL, isPosition } from "@/lib/positions";
+
+/** Today's calendar date in Beijing time, as YYYY-MM-DD. */
+export function beijingDateString(d: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+export type Signup = {
+  date: string;
+  member: string;
+  position: string;
+  champions: string[];
+  declaration: string;
+  updatedAt: string;
+};
+
+type SignupRow = {
+  signup_date: string;
+  member: string;
+  position: string | null;
+  champion_pick_1: string | null;
+  champion_pick_2: string | null;
+  champion_pick_3: string | null;
+  declaration: string | null;
+  updated_at: string;
+};
+
+function toSignup(r: SignupRow): Signup {
+  return {
+    date: r.signup_date,
+    member: r.member,
+    position: r.position ?? "",
+    champions: [r.champion_pick_1, r.champion_pick_2, r.champion_pick_3].filter(
+      (c): c is string => Boolean(c)
+    ),
+    declaration: r.declaration ?? "",
+    updatedAt: r.updated_at,
+  };
+}
+
+export async function getSignupsForDate(date: string): Promise<Signup[]> {
+  const { rows } = await sql<SignupRow>`
+    SELECT signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3, declaration, updated_at
+    FROM signups
+    WHERE signup_date = ${date}
+    ORDER BY updated_at ASC
+  `;
+  return rows.map(toSignup);
+}
+
+/** Which dates in [startDate, endDate] (inclusive, YYYY-MM-DD) have at least one sign-up — for calendar dots. */
+export async function getSignupDatesInRange(startDate: string, endDate: string): Promise<Set<string>> {
+  const { rows } = await sql<{ signup_date: string }>`
+    SELECT DISTINCT signup_date FROM signups
+    WHERE signup_date BETWEEN ${startDate} AND ${endDate}
+  `;
+  return new Set(rows.map((r) => r.signup_date));
+}
+
+export type SignupInput = {
+  date: string;
+  member: string;
+  position: string;
+  champions: string[]; // up to 3, blanks dropped
+  declaration: string;
+};
+
+export async function upsertSignup(input: SignupInput): Promise<void> {
+  const [c1, c2, c3] = [input.champions[0] ?? null, input.champions[1] ?? null, input.champions[2] ?? null];
+  await sql`
+    INSERT INTO signups (signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3, declaration, updated_at)
+    VALUES (${input.date}, ${input.member}, ${input.position}, ${c1}, ${c2}, ${c3}, ${input.declaration}, now())
+    ON CONFLICT (signup_date, member) DO UPDATE SET
+      position = EXCLUDED.position,
+      champion_pick_1 = EXCLUDED.champion_pick_1,
+      champion_pick_2 = EXCLUDED.champion_pick_2,
+      champion_pick_3 = EXCLUDED.champion_pick_3,
+      declaration = EXCLUDED.declaration,
+      updated_at = now()
+  `;
+}

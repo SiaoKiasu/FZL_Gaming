@@ -16,16 +16,19 @@ const quickLinks = [
     desc: "奖金池分配规则、缴费情况、月度结算与收支流水。",
     cta: "查看详情 →",
   },
+  {
+    href: "/schedule",
+    eyebrow: "Daily Sign-up",
+    title: "赛程",
+    desc: "预约今晚开黑、报位置、选英雄意向,留一句今日宣言。",
+    cta: "去预约 →",
+  },
 ];
 
 const comingSoon = [
   {
     title: "视频 / 集锦",
     desc: "比赛录像与个人集锦上传,集中展示与回顾。",
-  },
-  {
-    title: "赛程",
-    desc: "车队参加的比赛日程与结果,一目了然。",
   },
 ];
 
@@ -48,7 +51,7 @@ export default function Home() {
             {TEAM_NAME}
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-base text-[var(--muted)]">
-            车队专属门户 —— 选手名单、排位战绩、峡谷基金,更多内容持续上线。
+            无畏，竞巅峰。
           </p>
           <div className="mt-10 flex items-center justify-center gap-4">
             <Link

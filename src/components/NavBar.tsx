@@ -5,9 +5,10 @@ const links = [
   { href: "/roster", label: "选手名单" },
   { href: "/fund", label: "峡谷基金" },
   { href: "/matches", label: "战绩" },
+  { href: "/schedule", label: "赛程" },
 ];
 
-const comingSoon = ["视频", "赛程"];
+const comingSoon = ["视频"];
 
 export default function NavBar() {
   return (
