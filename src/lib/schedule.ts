@@ -23,6 +23,10 @@ export type Signup = {
   champions: string[];
   declaration: string;
   updatedAt: string;
+  // Minutes since 00:00, same-day only (no overnight wraparound yet).
+  // Both null when the member didn't set a booking window.
+  startMinute: number | null;
+  endMinute: number | null;
 };
 
 type SignupRow = {
@@ -34,6 +38,8 @@ type SignupRow = {
   champion_pick_3: string | null;
   declaration: string | null;
   updated_at: string;
+  start_minute: number | null;
+  end_minute: number | null;
 };
 
 function toSignup(r: SignupRow): Signup {
@@ -46,12 +52,15 @@ function toSignup(r: SignupRow): Signup {
     ),
     declaration: r.declaration ?? "",
     updatedAt: r.updated_at,
+    startMinute: r.start_minute === null ? null : Number(r.start_minute),
+    endMinute: r.end_minute === null ? null : Number(r.end_minute),
   };
 }
 
 export async function getSignupsForDate(date: string): Promise<Signup[]> {
   const { rows } = await sql<SignupRow>`
-    SELECT signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3, declaration, updated_at
+    SELECT signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3,
+           declaration, updated_at, start_minute, end_minute
     FROM signups
     WHERE signup_date = ${date}
     ORDER BY updated_at ASC
@@ -74,19 +83,29 @@ export type SignupInput = {
   position: string;
   champions: string[]; // up to 3, blanks dropped
   declaration: string;
+  startMinute: number | null; // both null = no booking window set
+  endMinute: number | null;
 };
 
 export async function upsertSignup(input: SignupInput): Promise<void> {
   const [c1, c2, c3] = [input.champions[0] ?? null, input.champions[1] ?? null, input.champions[2] ?? null];
   await sql`
-    INSERT INTO signups (signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3, declaration, updated_at)
-    VALUES (${input.date}, ${input.member}, ${input.position}, ${c1}, ${c2}, ${c3}, ${input.declaration}, now())
+    INSERT INTO signups (
+      signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3,
+      declaration, start_minute, end_minute, updated_at
+    )
+    VALUES (
+      ${input.date}, ${input.member}, ${input.position}, ${c1}, ${c2}, ${c3},
+      ${input.declaration}, ${input.startMinute}, ${input.endMinute}, now()
+    )
     ON CONFLICT (signup_date, member) DO UPDATE SET
       position = EXCLUDED.position,
       champion_pick_1 = EXCLUDED.champion_pick_1,
       champion_pick_2 = EXCLUDED.champion_pick_2,
       champion_pick_3 = EXCLUDED.champion_pick_3,
       declaration = EXCLUDED.declaration,
+      start_minute = EXCLUDED.start_minute,
+      end_minute = EXCLUDED.end_minute,
       updated_at = now()
   `;
 }

@@ -4,11 +4,14 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { POSITIONS, POSITION_LABEL } from "@/lib/positions";
+import { formatMinutes, parseTimeString, roundToStep } from "@/lib/time";
 
 type ExistingSignup = {
   position: string;
   champions: string[];
   declaration: string;
+  startMinute: number | null;
+  endMinute: number | null;
 };
 
 type Member = {
@@ -35,6 +38,8 @@ export default function ScheduleSignupForm({
   const [champ2, setChamp2] = useState("");
   const [champ3, setChamp3] = useState("");
   const [declaration, setDeclaration] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState("");
 
@@ -46,7 +51,17 @@ export default function ScheduleSignupForm({
     setChamp2(existing?.champions[1] ?? "");
     setChamp3(existing?.champions[2] ?? "");
     setDeclaration(existing?.declaration ?? "");
+    setStartTime(existing?.startMinute != null ? formatMinutes(existing.startMinute) : "");
+    setEndTime(existing?.endMinute != null ? formatMinutes(existing.endMinute) : "");
     setStatus("idle");
+  }
+
+  // Native time pickers don't reliably enforce `step` across browsers, so
+  // snap to the nearest 5-minute mark ourselves when the field loses focus.
+  function snapTime(value: string, set: (v: string) => void) {
+    const m = parseTimeString(value);
+    if (m === null) return;
+    set(formatMinutes(roundToStep(m)));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -64,6 +79,8 @@ export default function ScheduleSignupForm({
           position,
           champions: [champ1, champ2, champ3],
           declaration,
+          startTime: startTime || null,
+          endTime: endTime || null,
         }),
       });
       const data = await resp.json();
@@ -94,13 +111,13 @@ export default function ScheduleSignupForm({
 
       <div className="mt-4">
         <p className="mb-2 text-xs text-[var(--muted)]">你是谁</p>
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {members.map((m) => (
             <button
               key={m.id}
               type="button"
               onClick={() => handleMemberSelect(m.nickname)}
-              className="flex w-16 flex-col items-center gap-1"
+              className="flex flex-col items-center gap-1 justify-self-center"
             >
               <span
                 className={`relative block h-12 w-12 overflow-hidden rounded-full border-2 transition ${
@@ -140,6 +157,34 @@ export default function ScheduleSignupForm({
               {POSITION_LABEL[p]}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <p className="mb-2 text-xs text-[var(--muted)]">预约时间段（5 分钟为单位，可留空）</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="time"
+            step={300}
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            onBlur={(e) => snapTime(e.target.value, setStartTime)}
+            className={champInputClass + " w-32"}
+          />
+          <span className="text-sm text-[var(--muted)]">至</span>
+          <input
+            type="time"
+            step={300}
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            onBlur={(e) => snapTime(e.target.value, setEndTime)}
+            className={champInputClass + " w-32"}
+          />
+          {startTime && endTime ? (
+            <span className="text-xs text-[var(--gold)]">
+              {startTime} ～ {endTime}
+            </span>
+          ) : null}
         </div>
       </div>
 

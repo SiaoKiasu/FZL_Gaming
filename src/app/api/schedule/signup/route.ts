@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isDbConfigured } from "@/lib/db";
 import { upsertSignup } from "@/lib/schedule";
 import { isPosition } from "@/lib/positions";
+import { isValidMinute, parseTimeString } from "@/lib/time";
 import { roster } from "@/lib/roster";
 import championMap from "@/data/champions.json";
 
@@ -23,7 +24,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求格式不对" }, { status: 400 });
   }
 
-  const { date, member, position, champions, declaration } = (body ?? {}) as Record<string, unknown>;
+  const { date, member, position, champions, declaration, startTime, endTime } =
+    (body ?? {}) as Record<string, unknown>;
 
   if (typeof date !== "string" || !DATE_RE.test(date)) {
     return NextResponse.json({ error: "日期格式不对" }, { status: 400 });
@@ -47,6 +49,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "今日宣言太长了" }, { status: 400 });
   }
 
+  // Booking window is optional -- either both blank (no window set) or
+  // both a valid "HH:MM" 5-minute-aligned string with start < end.
+  const startBlank = startTime === undefined || startTime === null || startTime === "";
+  const endBlank = endTime === undefined || endTime === null || endTime === "";
+  let startMinute: number | null = null;
+  let endMinute: number | null = null;
+  if (!startBlank || !endBlank) {
+    if (startBlank || endBlank) {
+      return NextResponse.json({ error: "预约时间段要么都填，要么都留空" }, { status: 400 });
+    }
+    if (typeof startTime !== "string" || typeof endTime !== "string") {
+      return NextResponse.json({ error: "时间格式不对" }, { status: 400 });
+    }
+    const s = parseTimeString(startTime);
+    const e = parseTimeString(endTime);
+    if (s === null || e === null || !isValidMinute(s) || !isValidMinute(e)) {
+      return NextResponse.json({ error: "时间格式不对，需要 5 分钟为单位" }, { status: 400 });
+    }
+    if (s >= e) {
+      return NextResponse.json({ error: "结束时间要晚于开始时间（暂不支持跨零点）" }, { status: 400 });
+    }
+    startMinute = s;
+    endMinute = e;
+  }
+
   try {
     await upsertSignup({
       date,
@@ -54,6 +81,8 @@ export async function POST(req: Request) {
       position,
       champions: cleanChampions.slice(0, 3),
       declaration: declaration.trim(),
+      startMinute,
+      endMinute,
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

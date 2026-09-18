@@ -2,11 +2,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { isDbConfigured } from "@/lib/db";
 import { beijingDateString, getSignupDatesInRange, getSignupsForDate } from "@/lib/schedule";
+import { formatMinutes } from "@/lib/time";
 import { POSITION_LABEL, isPosition } from "@/lib/positions";
 import { roster } from "@/lib/roster";
 import championMap from "@/data/champions.json";
 import Pill from "@/components/Pill";
 import ScheduleSignupForm from "@/components/ScheduleSignupForm";
+import ScheduleTimeline from "@/components/ScheduleTimeline";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +75,16 @@ export default async function SchedulePage({
     (a, b) => a.localeCompare(b, "zh-Hans-CN")
   );
   const existingByMember = Object.fromEntries(
-    signups.map((s) => [s.member, { position: s.position, champions: s.champions, declaration: s.declaration }])
+    signups.map((s) => [
+      s.member,
+      {
+        position: s.position,
+        champions: s.champions,
+        declaration: s.declaration,
+        startMinute: s.startMinute,
+        endMinute: s.endMinute,
+      },
+    ])
   );
 
   const prevMonth = addMonths(selectedDate, -1);
@@ -156,6 +167,13 @@ export default async function SchedulePage({
         </div>
 
         <div className="space-y-6">
+          {dbReady ? (
+            <ScheduleTimeline
+              signups={signups.map((s) => ({ member: s.member, startMinute: s.startMinute, endMinute: s.endMinute }))}
+              photoByMember={photoByMember}
+            />
+          ) : null}
+
           <div>
             <div className="mb-3 flex items-center gap-2">
               <h2 className="font-display text-xl font-bold">{formatHeaderDate(selectedDate)} 预约名单</h2>
@@ -193,6 +211,11 @@ export default async function SchedulePage({
                         <span className="font-display font-bold text-[var(--foreground)]">{s.member}</span>
                         {isPosition(s.position) ? (
                           <Pill tone="neutral">{POSITION_LABEL[s.position]}</Pill>
+                        ) : null}
+                        {s.startMinute !== null && s.endMinute !== null ? (
+                          <Pill tone="good">
+                            {formatMinutes(s.startMinute)}–{formatMinutes(s.endMinute)}
+                          </Pill>
                         ) : null}
                         {s.champions.map((c) => (
                           <Pill key={c} tone="warning">
