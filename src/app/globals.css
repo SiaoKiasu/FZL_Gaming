@@ -1,0 +1,44 @@
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700;900&family=Inter:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+:root {
+  --bg: #0a0f1e;
+  --bg-panel: #0f172e;
+  --gold: #e7b655;
+  --gold-soft: #f0cd85;
+  --foreground: #eef1f8;
+  --muted: #8a93ab;
+  --border: rgba(231, 182, 85, 0.25);
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--foreground);
+  --font-display: "Rajdhani", sans-serif;
+  --font-sans: "Inter", Arial, Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(231, 182, 85, 0.08), transparent),
+    var(--bg);
+  color: var(--foreground);
+  font-family: "Inter", Arial, Helvetica, sans-serif;
+}
+
+.font-display {
+  font-family: "Rajdhani", sans-serif;
+}
+
+a {
+  color: inherit;
+}
