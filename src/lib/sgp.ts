@@ -155,6 +155,9 @@ export type PlayerRow = {
   teamId: number;
   position: string;
   champion: string;
+  championId: number;
+  spell1Id: number;
+  spell2Id: number;
   win: boolean;
   score: number | null;
   award: string;
@@ -162,12 +165,21 @@ export type PlayerRow = {
   deaths: number;
   assists: number;
   kda: number | null;
+  multiKill: string; // "" | 双杀 | 三杀 | 四杀 | 五杀 (best achieved this game)
+  firstBlood: boolean;
   gold: number;
   damageToChampions: number;
+  physicalDamage: number;
+  magicDamage: number;
+  trueDamage: number;
   damageTaken: number;
   heal: number;
+  turretDamage: number;
+  ccTime: number; // seconds of CC applied to enemies
   cs: number;
   visionScore: number;
+  wardsPlaced: number;
+  wardsKilled: number;
   champLevel: number;
   items: string;
 };
@@ -204,6 +216,15 @@ export function buildGameRecord(g: Json): GameRecord {
     const kda = deaths > 0 || kills + assists > 0 ? Math.round(((kills + assists) / Math.max(deaths, 1)) * 100) / 100 : null;
     const cs = num(p.totalMinionsKilled) + num(p.neutralMinionsKilled);
     const items = Array.from({ length: 7 }, (_, i) => String(num(p[`item${i}`]))).join(",");
+    const multiKill = num(p.pentaKills) > 0
+      ? "五杀"
+      : num(p.quadraKills) > 0
+        ? "四杀"
+        : num(p.tripleKills) > 0
+          ? "三杀"
+          : num(p.doubleKills) > 0
+            ? "双杀"
+            : "";
     return {
       gameId,
       puuid,
@@ -212,6 +233,9 @@ export function buildGameRecord(g: Json): GameRecord {
       teamId: Number(p.teamId ?? 0),
       position: String(pick(p, "teamPosition", "individualPosition", "lane") ?? ""),
       champion: champNameMap[champId] ?? champId,
+      championId: Number(champId) || 0,
+      spell1Id: num(pick(p, "summoner1Id")),
+      spell2Id: num(pick(p, "summoner2Id")),
       win: Boolean(p.win),
       score: rating.score,
       award: rating.award,
@@ -219,12 +243,21 @@ export function buildGameRecord(g: Json): GameRecord {
       deaths,
       assists,
       kda,
+      multiKill,
+      firstBlood: Boolean(p.firstBloodKill),
       gold: num(p.goldEarned),
       damageToChampions: num(p.totalDamageDealtToChampions),
+      physicalDamage: num(p.physicalDamageDealtToChampions),
+      magicDamage: num(p.magicDamageDealtToChampions),
+      trueDamage: num(p.trueDamageDealtToChampions),
       damageTaken: num(p.totalDamageTaken),
       heal: num(p.totalHeal),
+      turretDamage: num(pick(p, "damageDealtToTurrets")),
+      ccTime: num(p.timeCCingOthers),
       cs,
       visionScore: num(p.visionScore),
+      wardsPlaced: num(p.wardsPlaced),
+      wardsKilled: num(p.wardsKilled),
       champLevel: num(p.champLevel),
       items,
     };

@@ -1,5 +1,5 @@
 import { isDbConfigured, listMatches, type StoredMatch } from "@/lib/db";
-import { getDdragonVersion } from "@/lib/ddragon";
+import { getChampionIconMap, getDdragonVersion } from "@/lib/ddragon";
 import MatchSyncForm from "@/components/MatchSyncForm";
 import MatchesList from "@/components/MatchesList";
 
@@ -11,9 +11,10 @@ export const metadata = {
 
 export default async function MatchesPage() {
   const dbReady = isDbConfigured();
-  const [matches, version] = await Promise.all([
+  const [matches, version, championMap] = await Promise.all([
     dbReady ? listMatches(100) : Promise.resolve([] as StoredMatch[]),
     getDdragonVersion(),
+    getChampionIconMap(),
   ]);
 
   return (
@@ -38,7 +39,7 @@ export default async function MatchesPage() {
           还没有同步过战绩，粘贴 token 点一下同步吧。
         </p>
       ) : (
-        <MatchesList matches={matches} version={version} />
+        <MatchesList matches={matches} version={version} championMap={championMap} />
       )}
     </div>
   );

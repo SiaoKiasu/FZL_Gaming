@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { StoredMatch, StoredPlayer } from "@/lib/db";
-import { itemIconUrl, parseItemIds } from "@/lib/ddragon";
+import { championIconUrl } from "@/lib/ddragon";
 import Pill from "@/components/Pill";
 
 const POSITION_ORDER: Record<string, number> = {
@@ -37,37 +37,21 @@ function formatTime(ms: number) {
   });
 }
 
-function ItemStrip({ items, version }: { items: string; version: string }) {
-  const ids = parseItemIds(items);
-  return (
-    <div className="flex gap-0.5">
-      {ids.map((id, i) => {
-        const url = itemIconUrl(version, id);
-        return url ? (
-          <img
-            key={i}
-            src={url}
-            alt=""
-            width={18}
-            height={18}
-            className="rounded-[2px] border border-[var(--border)]"
-          />
-        ) : null;
-      })}
-    </div>
-  );
-}
-
+// Collapsed list view -- just enough to scan a match at a glance. Items,
+// score, damage breakdown etc. all live on the detail page (/matches/[id])
+// now, one click away.
 function TeamBlock({
   label,
   win,
   players,
   version,
+  championMap,
 }: {
   label: string;
   win: boolean;
   players: StoredPlayer[];
   version: string;
+  championMap: Record<number, string>;
 }) {
   const sorted = [...players].sort(
     (a, b) => (POSITION_ORDER[a.position] ?? 9) - (POSITION_ORDER[b.position] ?? 9)
@@ -86,44 +70,51 @@ function TeamBlock({
         {label} · {win ? "胜利" : "失败"}
       </p>
       <div className="mt-2 space-y-1.5">
-        {sorted.map((p) => (
-          <div
-            key={p.playerName}
-            className={`flex items-center gap-3 rounded-sm px-2 py-1.5 text-xs ${
-              p.member ? "bg-[var(--gold)]/[0.06]" : ""
-            }`}
-          >
-            <span className="w-8 shrink-0 text-[10px] font-medium text-[var(--muted)]">
-              {POSITION_LABEL[p.position] ?? "-"}
-            </span>
-            <span
-              className={`w-20 shrink-0 truncate font-medium ${
-                p.member ? "text-[var(--foreground)]" : "text-[var(--muted)]"
+        {sorted.map((p) => {
+          const iconUrl = championIconUrl(version, championMap, p.championId);
+          return (
+            <div
+              key={p.playerName}
+              className={`flex items-center gap-3 rounded-sm px-2 py-1.5 text-xs ${
+                p.member ? "bg-[var(--gold)]/[0.06]" : ""
               }`}
             >
-              {p.member || p.playerName.split("#")[0]}
-            </span>
-            <span className="w-16 shrink-0 truncate text-[var(--muted)]">{p.champion}</span>
-            <ItemStrip items={p.items} version={version} />
-            <span className="ml-auto shrink-0 tabular-nums text-[var(--foreground)]">
-              {p.kills}/{p.deaths}/{p.assists}
-            </span>
-            <span className="w-10 shrink-0 text-right tabular-nums font-semibold text-[var(--gold)]">
-              {p.score !== null ? p.score.toFixed(1) : "-"}
-            </span>
-            {p.award ? (
-              <Pill tone={p.award === "MVP" ? "good" : "warning"}>{p.award}</Pill>
-            ) : (
-              <span className="w-10 shrink-0" />
-            )}
-          </div>
-        ))}
+              <span className="w-8 shrink-0 text-[10px] font-medium text-[var(--muted)]">
+                {POSITION_LABEL[p.position] ?? "-"}
+              </span>
+              {iconUrl ? (
+                <img src={iconUrl} alt="" width={20} height={20} className="shrink-0 rounded-full border border-[var(--border)]" />
+              ) : (
+                <span className="h-5 w-5 shrink-0 rounded-full border border-dashed border-[var(--border)]" />
+              )}
+              <span
+                className={`w-20 shrink-0 truncate font-medium ${
+                  p.member ? "text-[var(--foreground)]" : "text-[var(--muted)]"
+                }`}
+              >
+                {p.member || p.playerName.split("#")[0]}
+              </span>
+              <span className="w-16 shrink-0 truncate text-[var(--muted)]">{p.champion}</span>
+              <span className="ml-auto shrink-0 tabular-nums text-[var(--foreground)]">
+                {p.kills}/{p.deaths}/{p.assists}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function MatchCard({ match, version }: { match: StoredMatch; version: string }) {
+function MatchCard({
+  match,
+  version,
+  championMap,
+}: {
+  match: StoredMatch;
+  version: string;
+  championMap: Record<number, string>;
+}) {
   const teamA = match.players.filter((p) => p.teamId === 100);
   const teamB = match.players.filter((p) => p.teamId === 200);
   const win = teamA[0]?.win ?? true;
@@ -144,8 +135,8 @@ function MatchCard({ match, version }: { match: StoredMatch; version: string }) 
         </span>
       </div>
       <div className="flex flex-col gap-4 sm:flex-row sm:gap-8">
-        <TeamBlock label="蓝色方" win={win} players={teamA} version={version} />
-        <TeamBlock label="红色方" win={!win} players={teamB} version={version} />
+        <TeamBlock label="蓝色方" win={win} players={teamA} version={version} championMap={championMap} />
+        <TeamBlock label="红色方" win={!win} players={teamB} version={version} championMap={championMap} />
       </div>
     </Link>
   );
@@ -154,9 +145,11 @@ function MatchCard({ match, version }: { match: StoredMatch; version: string }) 
 export default function MatchesList({
   matches,
   version,
+  championMap,
 }: {
   matches: StoredMatch[];
   version: string;
+  championMap: Record<number, string>;
 }) {
   const [filter, setFilter] = useState<string>("全部");
 
@@ -193,7 +186,7 @@ export default function MatchesList({
       ) : (
         <div className="space-y-4">
           {filtered.map((m) => (
-            <MatchCard key={m.gameId} match={m} version={version} />
+            <MatchCard key={m.gameId} match={m} version={version} championMap={championMap} />
           ))}
         </div>
       )}
