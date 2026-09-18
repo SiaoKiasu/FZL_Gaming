@@ -44,7 +44,7 @@ export const roster: Player[] = [
   },
   {
     id: "p5",
-    nickname: "变成光守护嘉嘉然",
+    nickname: "变成光守护嘉然然",
     positions: ["打野"],
     champions: ["伊莉丝", "阿木木", "布兰德"],
     photo: "/roster/p5.jpg",

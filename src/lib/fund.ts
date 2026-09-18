@@ -126,21 +126,22 @@ export const memberStats: MemberStat[] = memberDues.map((m) => ({
   qualified: false,
 }));
 
-// From 奖金结算 sheet — this month's actual computed split. Note this sheet
-// uses 30/30/15/15/10 rather than the 35/30/15/10/10 written in 规则说明
-// above; shown as-is from the source rather than reconciled.
+// From 奖金结算 sheet, amounts recalculated against the single standard
+// split (规则说明: 35/30/15/10/10 — the source sheet itself had drifted to
+// 30/30/15/15/10 for 首席导播/峡谷之巅; confirmed with the fund keeper that
+// 规则说明's 35/10 is the one true standard).
 export const settlement = {
   month: "2026 年 9 月",
   totalCollected: 240,
   equipmentCost: 0,
   pool: 240,
-  awards: [
-    { name: "峡谷之巅", share: 0.3, amount: 72, winner: null, status: "未发放" as const },
-    { name: "天选之子", share: 0.3, amount: 72, winner: null, status: "未发放" as const },
-    { name: "常驻嘉宾", share: 0.15, amount: 36, winner: null, status: "未发放" as const },
-    { name: "首席导播", share: 0.15, amount: 36, winner: null, status: "未发放" as const },
-    { name: "名场面", share: 0.1, amount: 24, winner: null, status: "未发放" as const },
-  ],
+  awards: awardRules.map((a) => ({
+    name: a.name,
+    share: a.share,
+    amount: Math.round(240 * a.share),
+    winner: null as string | null,
+    status: "未发放" as const,
+  })),
 };
 
 export type LedgerEntry = {
