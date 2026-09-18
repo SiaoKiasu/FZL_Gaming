@@ -239,54 +239,144 @@ export default async function FundPage() {
         </div>
       </section>
 
-      {/* Ranked stats */}
+      {/* Per-award stats -- 峡谷之巅/常驻嘉宾 computed live from synced
+          matches; 天选之子 (天命杯) stays manual, see note below. */}
       <section className="mb-16">
-        <h2 className="font-display mb-1 text-2xl font-bold">排位数据统计</h2>
+        <h2 className="font-display mb-1 text-2xl font-bold">评选统计</h2>
         <p className="mb-6 text-sm text-[var(--muted)]">
           {liveStats
-            ? "数据来自「战绩」页同步下来的对局记录，每次同步后自动更新（峡谷之巅：420/440 队列且车队五人同排；常驻嘉宾：任意已同步模式且车队三人及以上同队）。"
+            ? "峡谷之巅、常驻嘉宾两项数据来自「战绩」页同步下来的对局记录，每次同步后自动更新。"
             : "数据库还没接好，暂时显示占位结构；接上 Postgres 并同步过战绩后，这里会自动统计。"}
         </p>
-        <div className="overflow-x-auto rounded-sm border border-[var(--border)]">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="bg-[var(--bg-panel)] text-xs uppercase tracking-wider text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">成员</th>
-                <th className="px-4 py-3 font-medium">五黑排位局数</th>
-                <th className="px-4 py-3 font-medium">MVP</th>
-                <th className="px-4 py-3 font-medium">SVP</th>
-                <th className="px-4 py-3 font-medium">平均 MVP 率</th>
-                <th className="px-4 py-3 font-medium">达标（峡谷之巅）</th>
-                <th className="px-4 py-3 font-medium">全模式局数（常驻嘉宾）</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...memberStats]
-                .sort((a, b) => b.mvpRate - a.mvpRate || b.rankedGames - a.rankedGames)
-                .map((s) => (
-                <tr
-                  key={s.nickname}
-                  className="border-t border-[var(--border)] text-[var(--muted)]"
-                >
-                  <td className="px-4 py-3 font-medium text-[var(--foreground)]">
-                    {s.nickname}
-                  </td>
-                  <td className="px-4 py-3">{s.rankedGames}</td>
-                  <td className="px-4 py-3">{s.mvp}</td>
-                  <td className="px-4 py-3">{s.svp}</td>
-                  <td className="px-4 py-3">
-                    {(s.mvpRate * 100).toFixed(0)}%
-                  </td>
-                  <td className="px-4 py-3">
-                    <Pill tone={s.qualified ? "good" : "neutral"}>
-                      {s.qualified ? "达标" : "未达标"}
-                    </Pill>
-                  </td>
-                  <td className="px-4 py-3">{s.teamGames}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          {/* 峡谷之巅 */}
+          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="font-semibold">峡谷之巅</h3>
+              <span
+                className="rounded-sm px-2 py-0.5 text-xs font-bold"
+                style={{ color: seriesColors[0], backgroundColor: `color-mix(in srgb, ${seriesColors[0]} 15%, transparent)` }}
+              >
+                35%
+              </span>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">
+              五黑排位平均 MVP 率最高者（当月需满 5 局）
+            </p>
+            {(() => {
+              const sorted = [...memberStats].sort(
+                (a, b) => b.mvpRate - a.mvpRate || b.rankedGames - a.rankedGames
+              );
+              const leaderId = sorted.find((s) => s.qualified)?.nickname;
+              if (!sorted.some((s) => s.rankedGames > 0)) {
+                return (
+                  <p className="rounded-sm border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--muted)]">
+                    还没有五黑排位对局，同步后自动出现。
+                  </p>
+                );
+              }
+              return (
+                <div className="space-y-1.5">
+                  {sorted.map((s) => (
+                    <div
+                      key={s.nickname}
+                      className={`flex items-center justify-between rounded-sm px-2 py-1.5 text-xs ${
+                        s.nickname === leaderId ? "bg-[var(--gold)]/10" : ""
+                      }`}
+                    >
+                      <span className={`font-medium ${s.nickname === leaderId ? "text-[var(--gold)]" : "text-[var(--foreground)]"}`}>
+                        {s.nickname}
+                        {s.nickname === leaderId ? " 👑" : ""}
+                      </span>
+                      <span className="tabular-nums text-[var(--muted)]">
+                        {s.rankedGames} 局 · MVP {s.mvp} · SVP {s.svp} · {(s.mvpRate * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                  {!leaderId ? (
+                    <p className="pt-1 text-[11px] text-[var(--muted)]">还没有人满足参评门槛（需满 5 局）。</p>
+                  ) : null}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* 天选之子 -- 天命杯是队内另外组织的临时抽签赛制，不在同步的战绩数据里 */}
+          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="font-semibold">天选之子</h3>
+              <span
+                className="rounded-sm px-2 py-0.5 text-xs font-bold"
+                style={{ color: seriesColors[1], backgroundColor: `color-mix(in srgb, ${seriesColors[1]} 15%, transparent)` }}
+              >
+                30%
+              </span>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">
+              月内「天命杯」累计 MVP 数最多者
+            </p>
+            <p className="rounded-sm border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--muted)]">
+              天命杯是队内另外组织的临时抽签赛制，不在同步的战绩数据里，无法自动统计——由保管人根据天命杯记录手动登记。
+            </p>
+            {(() => {
+              const award = settlement.awards.find((a) => a.name === "天选之子");
+              return award ? (
+                <div className="mt-3 flex items-center justify-between text-xs">
+                  <span className="text-[var(--muted)]">当前获奖人</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-[var(--foreground)]">{award.winner ?? "评选中"}</span>
+                    <Pill tone="warning">{award.status}</Pill>
+                  </span>
+                </div>
+              ) : null;
+            })()}
+          </div>
+
+          {/* 常驻嘉宾 */}
+          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="font-semibold">常驻嘉宾</h3>
+              <span
+                className="rounded-sm px-2 py-0.5 text-xs font-bold"
+                style={{ color: seriesColors[2], backgroundColor: `color-mix(in srgb, ${seriesColors[2]} 15%, transparent)` }}
+              >
+                15%
+              </span>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">
+              三人及以上任意模式，参与局数最多者
+            </p>
+            {(() => {
+              const sorted = [...memberStats].sort((a, b) => b.teamGames - a.teamGames);
+              const leaderId = sorted[0]?.teamGames > 0 ? sorted[0].nickname : undefined;
+              if (!sorted.some((s) => s.teamGames > 0)) {
+                return (
+                  <p className="rounded-sm border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--muted)]">
+                    还没有三人以上同队的对局，同步后自动出现。
+                  </p>
+                );
+              }
+              return (
+                <div className="space-y-1.5">
+                  {sorted.map((s) => (
+                    <div
+                      key={s.nickname}
+                      className={`flex items-center justify-between rounded-sm px-2 py-1.5 text-xs ${
+                        s.nickname === leaderId ? "bg-[var(--gold)]/10" : ""
+                      }`}
+                    >
+                      <span className={`font-medium ${s.nickname === leaderId ? "text-[var(--gold)]" : "text-[var(--foreground)]"}`}>
+                        {s.nickname}
+                        {s.nickname === leaderId ? " 👑" : ""}
+                      </span>
+                      <span className="tabular-nums text-[var(--muted)]">{s.teamGames} 局</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
         </div>
       </section>
 
