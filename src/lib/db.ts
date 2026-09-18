@@ -314,7 +314,12 @@ export type LedgerEntry = {
 
 type LedgerRow = {
   id: number;
-  entry_date: string;
+  // The Postgres driver parses DATE columns (OID 1082) into native JS Date
+  // objects, not strings -- despite this column being declared `string`
+  // at the SQL-template-tag level. Rendering a raw Date directly in JSX
+  // (`{entry.date}`) throws React's "Objects are not valid as a React
+  // child" error, so every read path must coerce it with formatDateOnly().
+  entry_date: string | Date;
   type: string;
   item: string;
   income: string | null;
@@ -322,6 +327,17 @@ type LedgerRow = {
   handler: string;
   balance: string;
 };
+
+// Normalizes a DATE column value to a plain "YYYY-MM-DD" string. Handles
+// both shapes defensively: a real Date object (the actual runtime type
+// returned by @neondatabase/serverless for DATE columns) and a string
+// (in case a future driver version or query path returns one directly).
+function formatDateOnly(value: string | Date): string {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  return String(value).slice(0, 10);
+}
 
 export async function getLedgerEntries(): Promise<LedgerEntry[]> {
   try {
@@ -333,7 +349,7 @@ export async function getLedgerEntries(): Promise<LedgerEntry[]> {
     `;
     return rows.map((r) => ({
       id: r.id,
-      date: r.entry_date,
+      date: formatDateOnly(r.entry_date),
       type: r.type,
       item: r.item,
       income: r.income === null ? null : Number(r.income),

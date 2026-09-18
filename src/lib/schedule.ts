@@ -30,28 +30,40 @@ export type Signup = {
 };
 
 type SignupRow = {
-  signup_date: string;
+  // The driver parses DATE/TIMESTAMPTZ columns into native JS Date
+  // objects, not strings, so both fields are normalized through
+  // normalizeDateOnly() / normalizeTimestamp() below before they leave
+  // this module -- see the identical note on LedgerRow in db.ts.
+  signup_date: string | Date;
   member: string;
   position: string | null;
   champion_pick_1: string | null;
   champion_pick_2: string | null;
   champion_pick_3: string | null;
   declaration: string | null;
-  updated_at: string;
+  updated_at: string | Date;
   start_minute: number | null;
   end_minute: number | null;
 };
 
+function normalizeDateOnly(value: string | Date): string {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+}
+
+function normalizeTimestamp(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
 function toSignup(r: SignupRow): Signup {
   return {
-    date: r.signup_date,
+    date: normalizeDateOnly(r.signup_date),
     member: r.member,
     position: r.position ?? "",
     champions: [r.champion_pick_1, r.champion_pick_2, r.champion_pick_3].filter(
       (c): c is string => Boolean(c)
     ),
     declaration: r.declaration ?? "",
-    updatedAt: r.updated_at,
+    updatedAt: normalizeTimestamp(r.updated_at),
     startMinute: r.start_minute === null ? null : Number(r.start_minute),
     endMinute: r.end_minute === null ? null : Number(r.end_minute),
   };
@@ -68,13 +80,17 @@ export async function getSignupsForDate(date: string): Promise<Signup[]> {
   return rows.map(toSignup);
 }
 
-/** Which dates in [startDate, endDate] (inclusive, YYYY-MM-DD) have at least one sign-up — for calendar dots. */
+/** Which dates in [startDate, endDate] (inclusive, YYYY-MM-DD) have at least one sign-up -- for calendar dots. */
 export async function getSignupDatesInRange(startDate: string, endDate: string): Promise<Set<string>> {
-  const { rows } = await sql<{ signup_date: string }>`
+  const { rows } = await sql<{ signup_date: string | Date }>`
     SELECT DISTINCT signup_date FROM signups
     WHERE signup_date BETWEEN ${startDate} AND ${endDate}
   `;
-  return new Set(rows.map((r) => r.signup_date));
+  // The driver parses DATE columns into native JS Date objects, not
+  // strings, so this Set must be built from normalized "YYYY-MM-DD"
+  // strings -- otherwise `.has(someDateString)` below never matches and
+  // the calendar dots silently never show.
+  return new Set(rows.map((r) => normalizeDateOnly(r.signup_date)));
 }
 
 export async function deleteSignup(date: string, member: string): Promise<void> {
