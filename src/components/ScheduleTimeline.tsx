@@ -8,10 +8,38 @@ type TimelineEntry = {
 };
 
 const BUCKETS = MINUTES_PER_DAY / TIME_STEP_MINUTES; // 288, 5-minute resolution
-const HOUR_TICKS = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24];
+const PAD_HOURS = 1;
+const MIN_SPAN_MINUTES = 4 * 60; // don't zoom in tighter than a 4-hour window
 
-function pct(minute: number) {
-  return (minute / MINUTES_PER_DAY) * 100;
+function pct(minute: number, rangeStart: number, rangeSpan: number) {
+  return ((minute - rangeStart) / rangeSpan) * 100;
+}
+
+/** Only the evening (or whenever) window people actually booked has anything
+ * to show -- displaying the full 0-24 axis wastes most of the width on
+ * empty hours. Zoom to the booked range plus an hour of padding either
+ * side, snapped to whole hours so the tick axis stays tidy. */
+function computeRange(entries: TimelineEntry[]) {
+  const minStart = Math.min(...entries.map((e) => e.startMinute));
+  const maxEnd = Math.max(...entries.map((e) => e.endMinute));
+  let rangeStart = Math.max(0, Math.floor(minStart / 60) * 60 - PAD_HOURS * 60);
+  let rangeEnd = Math.min(MINUTES_PER_DAY, Math.ceil(maxEnd / 60) * 60 + PAD_HOURS * 60);
+  if (rangeEnd - rangeStart < MIN_SPAN_MINUTES) {
+    const mid = (rangeStart + rangeEnd) / 2;
+    rangeEnd = Math.min(MINUTES_PER_DAY, Math.floor((mid + MIN_SPAN_MINUTES / 2) / 60) * 60);
+    rangeStart = Math.max(0, rangeEnd - MIN_SPAN_MINUTES);
+  }
+  return { rangeStart, rangeEnd };
+}
+
+function buildHourTicks(rangeStart: number, rangeEnd: number) {
+  const spanHours = (rangeEnd - rangeStart) / 60;
+  const step = spanHours <= 5 ? 1 : spanHours <= 10 ? 2 : spanHours <= 18 ? 3 : 4;
+  const ticks: number[] = [];
+  for (let h = rangeStart / 60; h < rangeEnd / 60; h += step) ticks.push(h);
+  const lastHour = rangeEnd / 60;
+  if (ticks[ticks.length - 1] !== lastHour) ticks.push(lastHour);
+  return ticks;
 }
 
 /** Run-length-encode the per-bucket overlap count into colored segments,
@@ -57,6 +85,40 @@ function buildOverlap(entries: TimelineEntry[]) {
   return { segments, maxCount, peak };
 }
 
+function BookingBar({
+  entry,
+  rangeStart,
+  rangeSpan,
+}: {
+  entry: TimelineEntry;
+  rangeStart: number;
+  rangeSpan: number;
+}) {
+  const left = pct(entry.startMinute, rangeStart, rangeSpan);
+  const width = Math.max(pct(entry.endMinute, rangeStart, rangeSpan) - left, 2);
+  const label = `${formatMinutes(entry.startMinute)}–${formatMinutes(entry.endMinute)}`;
+  // Keep the time-range text outside the highlighted block itself so it's
+  // never clipped by a narrow bar -- flip it to the other side once the
+  // bar runs past ~70% of the track so it doesn't fall off the right edge.
+  const labelOnRight = left + width <= 70;
+  return (
+    <div className="relative h-6 flex-1 rounded-sm bg-white/[0.03]">
+      <div
+        className="absolute inset-y-0 rounded-sm border border-[var(--gold)]/60 bg-[var(--gold)]/25"
+        style={{ left: `${left}%`, width: `${width}%` }}
+      />
+      <span
+        className={`absolute inset-y-0 flex items-center whitespace-nowrap text-[10px] font-medium text-[var(--gold-soft)] ${
+          labelOnRight ? "" : "justify-end"
+        }`}
+        style={labelOnRight ? { left: `calc(${left + width}% + 6px)` } : { right: `calc(${100 - left}% + 6px)` }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
 export default function ScheduleTimeline({
   signups,
   photoByMember,
@@ -80,6 +142,9 @@ export default function ScheduleTimeline({
   }
 
   const { segments, maxCount, peak } = buildOverlap(entries);
+  const { rangeStart, rangeEnd } = computeRange(entries);
+  const rangeSpan = rangeEnd - rangeStart;
+  const hourTicks = buildHourTicks(rangeStart, rangeEnd);
 
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] p-4 shadow-[0_8px_24px_rgba(0,0,0,0.25)] sm:p-5">
@@ -94,79 +159,72 @@ export default function ScheduleTimeline({
         ) : null}
       </div>
 
-      {/* Horizontal scroll on narrow screens -- the 24-hour axis, per-member
-          bars and heat strip all need real width to stay legible, so they
-          scroll together as one block rather than squeezing to fit. */}
-      <div className="overflow-x-auto">
-        <div className="min-w-[560px]">
-          <div className="pl-20 sm:pl-28">
-            <div className="relative h-4 text-[10px] text-[var(--muted)]">
-              {HOUR_TICKS.map((h) => (
-                <span
-                  key={h}
-                  className="absolute -translate-x-1/2"
-                  style={{ left: `${pct(h * 60)}%` }}
-                >
-                  {h}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* One row per person with a booking window */}
-          <div className="mt-1 space-y-2">
-            {entries.map((e) => (
-              <div key={e.member} className="flex items-center gap-3">
-                <div className="flex w-16 shrink-0 items-center gap-2 sm:w-24">
-                  {photoByMember[e.member] ? (
-                    <span className="relative block h-6 w-6 shrink-0 overflow-hidden rounded-full border border-[var(--border)]">
-                      <Image src={photoByMember[e.member]} alt={e.member} fill className="object-cover" sizes="24px" />
-                    </span>
-                  ) : null}
-                  <span className="truncate text-xs text-[var(--foreground)]">{e.member}</span>
-                </div>
-                <div className="relative h-6 flex-1 rounded-sm bg-white/[0.03]">
-                  <div
-                    className="absolute inset-y-0 flex items-center justify-center rounded-sm border border-[var(--gold)]/60 bg-[var(--gold)]/25 px-1 text-[10px] font-medium text-[var(--gold-soft)]"
-                    style={{
-                      left: `${pct(e.startMinute)}%`,
-                      width: `${Math.max(pct(e.endMinute - e.startMinute), 3)}%`,
-                    }}
-                  >
-                    <span className="truncate">
-                      {formatMinutes(e.startMinute)}–{formatMinutes(e.endMinute)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Overlap heat strip -- darker = more people booked at that time */}
-          <div className="mt-4 pl-20 sm:pl-28">
-            <div className="relative h-3 overflow-hidden rounded-sm bg-white/[0.03]">
-              {segments
-                .filter((seg) => seg.count > 0)
-                .map((seg, i) => {
-                  const isPeak = peak && seg.count === maxCount;
-                  const alpha = 0.18 + 0.62 * (seg.count / Math.max(maxCount, 1));
-                  return (
-                    <div
-                      key={i}
-                      className={`absolute inset-y-0 ${isPeak ? "ring-1 ring-inset ring-[var(--gold)]" : ""}`}
-                      style={{
-                        left: `${pct(seg.startMinute)}%`,
-                        width: `${pct(seg.endMinute - seg.startMinute)}%`,
-                        backgroundColor: `rgba(231, 182, 85, ${alpha})`,
-                      }}
-                      title={`${formatMinutes(seg.startMinute)}–${formatMinutes(seg.endMinute)} · ${seg.count} 人`}
-                    />
-                  );
-                })}
-            </div>
-            <p className="mt-1 text-[10px] text-[var(--muted)]">颜色越深，同时预约的人越多</p>
-          </div>
+      {/* Label column is avatar-only on mobile (no room to also spell out
+          names once the bars need real width) and gains the name at sm+. */}
+      <div className="pl-9 sm:pl-28">
+        <div className="relative h-4 text-[10px] text-[var(--muted)]">
+          {hourTicks.map((h) => (
+            <span
+              key={h}
+              className="absolute -translate-x-1/2"
+              style={{ left: `${pct(h * 60, rangeStart, rangeSpan)}%` }}
+            >
+              {h}
+            </span>
+          ))}
         </div>
+      </div>
+
+      {/* One row per person with a booking window */}
+      <div className="mt-1 space-y-2">
+        {entries.map((e) => (
+          <div key={e.member} className="flex items-center gap-2 sm:gap-3">
+            <div className="flex w-9 shrink-0 items-center gap-2 sm:w-24">
+              {photoByMember[e.member] ? (
+                <span
+                  className="relative block h-6 w-6 shrink-0 overflow-hidden rounded-full border border-[var(--border)]"
+                  title={e.member}
+                >
+                  <Image src={photoByMember[e.member]} alt={e.member} fill className="object-cover" sizes="24px" />
+                </span>
+              ) : (
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-[9px] text-[var(--muted)]"
+                  title={e.member}
+                >
+                  {e.member.slice(0, 1)}
+                </span>
+              )}
+              <span className="hidden truncate text-xs text-[var(--foreground)] sm:inline">{e.member}</span>
+            </div>
+            <BookingBar entry={e} rangeStart={rangeStart} rangeSpan={rangeSpan} />
+          </div>
+        ))}
+      </div>
+
+      {/* Overlap heat strip -- darker = more people booked at that time */}
+      <div className="mt-4 pl-9 sm:pl-28">
+        <div className="relative h-3 overflow-hidden rounded-sm bg-white/[0.03]">
+          {segments
+            .filter((seg) => seg.count > 0)
+            .map((seg, i) => {
+              const isPeak = peak && seg.count === maxCount;
+              const alpha = 0.18 + 0.62 * (seg.count / Math.max(maxCount, 1));
+              return (
+                <div
+                  key={i}
+                  className={`absolute inset-y-0 ${isPeak ? "ring-1 ring-inset ring-[var(--gold)]" : ""}`}
+                  style={{
+                    left: `${pct(seg.startMinute, rangeStart, rangeSpan)}%`,
+                    width: `${pct(seg.endMinute, rangeStart, rangeSpan) - pct(seg.startMinute, rangeStart, rangeSpan)}%`,
+                    backgroundColor: `rgba(231, 182, 85, ${alpha})`,
+                  }}
+                  title={`${formatMinutes(seg.startMinute)}–${formatMinutes(seg.endMinute)} · ${seg.count} 人`}
+                />
+              );
+            })}
+        </div>
+        <p className="mt-1 text-[10px] text-[var(--muted)]">颜色越深，同时预约的人越多</p>
       </div>
     </div>
   );
