@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { isDbConfigured } from "@/lib/db";
 import { beijingDateString, getSignupDatesInRange, getSignupsForDate } from "@/lib/schedule";
 import { POSITION_LABEL, isPosition } from "@/lib/positions";
@@ -67,7 +68,7 @@ export default async function SchedulePage({
     ? await Promise.all([getSignupsForDate(selectedDate), getSignupDatesInRange(gridStart, gridEnd)])
     : [[], new Set<string>()];
 
-  const members = roster.map((p) => p.nickname);
+  const photoByMember = Object.fromEntries(roster.map((p) => [p.nickname, p.photo]));
   const championOptions = Array.from(new Set(Object.values(championMap as Record<string, string>))).sort(
     (a, b) => a.localeCompare(b, "zh-Hans-CN")
   );
@@ -88,29 +89,29 @@ export default async function SchedulePage({
         <p className="mt-3 text-sm text-[var(--muted)]">预约今晚开黑，报位置、选英雄意向，留一句今日宣言。</p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-        <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
-          <div className="mb-3 flex items-center justify-between">
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+        <div className="h-fit rounded-md border border-[var(--border)] bg-[var(--bg-panel)] p-5 shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
+          <div className="mb-4 flex items-center justify-between">
             <Link
               href={`/schedule?date=${prevMonth}`}
-              className="rounded-sm border border-[var(--border)] px-2 py-1 text-sm text-[var(--muted)] transition hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
             >
-              ←
+              ‹
             </Link>
-            <p className="font-display text-sm font-bold tracking-wide">
+            <p className="font-display text-base font-bold tracking-wide">
               {year} 年 {month} 月
             </p>
             <Link
               href={`/schedule?date=${nextMonth}`}
-              className="rounded-sm border border-[var(--border)] px-2 py-1 text-sm text-[var(--muted)] transition hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
             >
-              →
+              ›
             </Link>
           </div>
 
-          <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-[var(--muted)]">
+          <div className="grid grid-cols-7 gap-y-1 text-center text-[11px] font-medium text-[var(--muted)]">
             {WEEKDAY_LABEL.map((w) => (
-              <div key={w} className="py-1">
+              <div key={w} className="pb-2">
                 {w}
               </div>
             ))}
@@ -119,26 +120,27 @@ export default async function SchedulePage({
               const isToday = cell.date === today;
               const hasSignups = markedDates.has(cell.date);
               return (
-                <Link
-                  key={cell.date}
-                  href={`/schedule?date=${cell.date}`}
-                  className={`relative flex aspect-square items-center justify-center rounded-sm text-xs transition ${
-                    isSelected
-                      ? "bg-[var(--gold)] font-bold text-[#0a0f1e]"
-                      : cell.inMonth
-                        ? "text-[var(--foreground)] hover:bg-[var(--gold)]/10"
-                        : "text-[var(--muted)]/40 hover:bg-[var(--gold)]/5"
-                  } ${isToday && !isSelected ? "ring-1 ring-inset ring-[var(--gold)]/60" : ""}`}
-                >
-                  {cell.day}
-                  {hasSignups ? (
-                    <span
-                      className={`absolute bottom-1 h-1 w-1 rounded-full ${
-                        isSelected ? "bg-[#0a0f1e]" : "bg-[var(--gold)]"
-                      }`}
-                    />
-                  ) : null}
-                </Link>
+                <div key={cell.date} className="flex items-center justify-center py-0.5">
+                  <Link
+                    href={`/schedule?date=${cell.date}`}
+                    className={`relative flex h-9 w-9 items-center justify-center rounded-full text-xs transition ${
+                      isSelected
+                        ? "bg-[var(--gold)] font-bold text-[#0a0f1e]"
+                        : cell.inMonth
+                          ? "text-[var(--foreground)] hover:bg-[var(--gold)]/10"
+                          : "text-[var(--muted)]/40 hover:bg-[var(--gold)]/5"
+                    } ${isToday && !isSelected ? "ring-1 ring-inset ring-[var(--gold)]/60" : ""}`}
+                  >
+                    {cell.day}
+                    {hasSignups ? (
+                      <span
+                        className={`absolute -bottom-0.5 h-1 w-1 rounded-full ${
+                          isSelected ? "bg-[#0a0f1e]" : "bg-[var(--gold)]"
+                        }`}
+                      />
+                    ) : null}
+                  </Link>
+                </div>
               );
             })}
           </div>
@@ -146,7 +148,7 @@ export default async function SchedulePage({
           {selectedDate !== today ? (
             <Link
               href={`/schedule?date=${today}`}
-              className="mt-3 block text-center text-xs text-[var(--gold)] hover:text-[var(--gold-soft)]"
+              className="mt-4 block text-center text-xs text-[var(--gold)] hover:text-[var(--gold-soft)]"
             >
               回到今天
             </Link>
@@ -161,11 +163,11 @@ export default async function SchedulePage({
             </div>
 
             {!dbReady ? (
-              <p className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 text-center text-sm text-[var(--muted)]">
+              <p className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] p-6 text-center text-sm text-[var(--muted)]">
                 数据库还没接好，部署到 Vercel 并接上 Postgres 存储后，这里会显示大家的预约。
               </p>
             ) : signups.length === 0 ? (
-              <p className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 text-center text-sm text-[var(--muted)]">
+              <p className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] p-6 text-center text-sm text-[var(--muted)]">
                 还没有人预约这天，第一个来出声。
               </p>
             ) : (
@@ -173,21 +175,36 @@ export default async function SchedulePage({
                 {signups.map((s) => (
                   <div
                     key={s.member}
-                    className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4"
+                    className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] p-4 shadow-[0_4px_16px_rgba(0,0,0,0.2)]"
                   >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-display font-bold text-[var(--foreground)]">{s.member}</span>
-                      {isPosition(s.position) ? (
-                        <Pill tone="neutral">{POSITION_LABEL[s.position]}</Pill>
+                    <div className="flex items-center gap-3">
+                      {photoByMember[s.member] ? (
+                        <span className="relative block h-10 w-10 shrink-0 overflow-hidden rounded-full border border-[var(--border)]">
+                          <Image
+                            src={photoByMember[s.member]}
+                            alt={s.member}
+                            fill
+                            className="object-cover"
+                            sizes="40px"
+                          />
+                        </span>
                       ) : null}
-                      {s.champions.map((c) => (
-                        <Pill key={c} tone="warning">
-                          {c}
-                        </Pill>
-                      ))}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-display font-bold text-[var(--foreground)]">{s.member}</span>
+                        {isPosition(s.position) ? (
+                          <Pill tone="neutral">{POSITION_LABEL[s.position]}</Pill>
+                        ) : null}
+                        {s.champions.map((c) => (
+                          <Pill key={c} tone="warning">
+                            {c}
+                          </Pill>
+                        ))}
+                      </div>
                     </div>
                     {s.declaration ? (
-                      <p className="mt-2 text-sm italic text-[var(--muted)]">「{s.declaration}」</p>
+                      <p className="mt-3 border-l-2 border-[var(--gold)]/50 pl-3 text-sm italic text-[var(--muted)]">
+                        「{s.declaration}」
+                      </p>
                     ) : null}
                   </div>
                 ))}
@@ -197,7 +214,7 @@ export default async function SchedulePage({
 
           <ScheduleSignupForm
             date={selectedDate}
-            members={members}
+            members={roster.map((p) => ({ id: p.id, nickname: p.nickname, photo: p.photo }))}
             championOptions={championOptions}
             existingByMember={existingByMember}
           />

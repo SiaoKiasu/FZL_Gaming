@@ -14,7 +14,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <NavBar />
         <main className="flex-1">{children}</main>
         <footer className="border-t border-[var(--border)] py-6 text-center text-xs text-[var(--muted)]">
-          FZL GAMING · 车队专属门户 · {new Date().getFullYear()}
+          FZL GAMING · {new Date().getFullYear()}
         </footer>
       </body>
     </html>

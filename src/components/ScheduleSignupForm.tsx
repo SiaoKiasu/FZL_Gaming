@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { POSITIONS, POSITION_LABEL } from "@/lib/positions";
@@ -10,6 +11,12 @@ type ExistingSignup = {
   declaration: string;
 };
 
+type Member = {
+  id: string;
+  nickname: string;
+  photo: string;
+};
+
 export default function ScheduleSignupForm({
   date,
   members,
@@ -17,7 +24,7 @@ export default function ScheduleSignupForm({
   existingByMember,
 }: {
   date: string;
-  members: string[];
+  members: Member[];
   championOptions: string[];
   existingByMember: Record<string, ExistingSignup>;
 }) {
@@ -31,7 +38,7 @@ export default function ScheduleSignupForm({
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState("");
 
-  function handleMemberChange(next: string) {
+  function handleMemberSelect(next: string) {
     setMember(next);
     const existing = existingByMember[next];
     setPosition(existing?.position ?? "");
@@ -73,94 +80,112 @@ export default function ScheduleSignupForm({
     }
   }
 
+  const champInputClass =
+    "w-full rounded-sm border border-[var(--border)] bg-[#0a0f1e] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--gold)]";
+
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5"
+      className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] p-6 shadow-[0_8px_24px_rgba(0,0,0,0.25)]"
     >
       <p className="font-display text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
         预约今晚
       </p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
-          你是谁
-          <select
-            value={member}
-            onChange={(e) => handleMemberChange(e.target.value)}
-            className="rounded-sm border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--gold)]"
-          >
-            <option value="" className="bg-[var(--bg-panel)]">
-              选择你的昵称
-            </option>
-            {members.map((m) => (
-              <option key={m} value={m} className="bg-[var(--bg-panel)]">
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="mt-4">
+        <p className="mb-2 text-xs text-[var(--muted)]">你是谁</p>
+        <div className="flex flex-wrap gap-3">
+          {members.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => handleMemberSelect(m.nickname)}
+              className="flex w-16 flex-col items-center gap-1"
+            >
+              <span
+                className={`relative block h-12 w-12 overflow-hidden rounded-full border-2 transition ${
+                  member === m.nickname
+                    ? "border-[var(--gold)]"
+                    : "border-[var(--border)] opacity-70 hover:opacity-100"
+                }`}
+              >
+                <Image src={m.photo} alt={m.nickname} fill className="object-cover" sizes="48px" />
+              </span>
+              <span
+                className={`line-clamp-1 text-center text-[10px] ${
+                  member === m.nickname ? "text-[var(--gold)]" : "text-[var(--muted)]"
+                }`}
+              >
+                {m.nickname}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
-          预约位置
-          <select
-            value={position}
-            onChange={(e) => setPosition(e.target.value)}
-            className="rounded-sm border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--gold)]"
-          >
-            <option value="" className="bg-[var(--bg-panel)]">
-              选择位置
-            </option>
-            {POSITIONS.map((p) => (
-              <option key={p} value={p} className="bg-[var(--bg-panel)]">
-                {POSITION_LABEL[p]}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="mt-5">
+        <p className="mb-2 text-xs text-[var(--muted)]">预约位置</p>
+        <div className="flex flex-wrap gap-2">
+          {POSITIONS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPosition(p)}
+              className={`rounded-full border px-4 py-1.5 text-sm font-medium transition ${
+                position === p
+                  ? "border-[var(--gold)] bg-[var(--gold)] text-[#0a0f1e]"
+                  : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
+              }`}
+            >
+              {POSITION_LABEL[p]}
+            </button>
+          ))}
+        </div>
+      </div>
 
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
         {[
           { label: "英雄意向 1", value: champ1, set: setChamp1 },
           { label: "英雄意向 2", value: champ2, set: setChamp2 },
           { label: "英雄意向 3", value: champ3, set: setChamp3 },
-        ].map((f) => (
+        ].map((f, i) => (
           <label key={f.label} className="flex flex-col gap-1 text-xs text-[var(--muted)]">
             {f.label}
-            <select
+            <input
+              type="text"
+              list="fzl-champion-options"
               value={f.value}
               onChange={(e) => f.set(e.target.value)}
-              className="rounded-sm border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--gold)]"
-            >
-              <option value="" className="bg-[var(--bg-panel)]">
-                不限
-              </option>
-              {championOptions.map((c) => (
-                <option key={c} value={c} className="bg-[var(--bg-panel)]">
-                  {c}
-                </option>
-              ))}
-            </select>
+              placeholder={i === 0 ? "输入拼音/名字搜索" : "可留空"}
+              className={champInputClass}
+              autoComplete="off"
+            />
           </label>
         ))}
-
-        <label className="flex flex-col gap-1 text-xs text-[var(--muted)] sm:col-span-2">
-          今日宣言
-          <input
-            type="text"
-            value={declaration}
-            onChange={(e) => setDeclaration(e.target.value)}
-            maxLength={140}
-            placeholder="说点什么，比如「今晚必须上分」"
-            className="rounded-sm border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--gold)]"
-          />
-        </label>
       </div>
+      <datalist id="fzl-champion-options">
+        {championOptions.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
 
-      <div className="mt-4 flex items-center gap-3">
+      <label className="mt-5 flex flex-col gap-1 text-xs text-[var(--muted)]">
+        今日宣言
+        <input
+          type="text"
+          value={declaration}
+          onChange={(e) => setDeclaration(e.target.value)}
+          maxLength={140}
+          placeholder="说点什么，比如「今晚必须上分」"
+          className={champInputClass}
+        />
+      </label>
+
+      <div className="mt-5 flex items-center gap-3">
         <button
           type="submit"
           disabled={status === "loading" || !member || !position}
-          className="font-display rounded-sm bg-[var(--gold)] px-5 py-2 text-sm font-bold text-[#0a0f1e] transition disabled:cursor-not-allowed disabled:opacity-50"
+          className="font-display rounded-sm bg-[var(--gold)] px-6 py-2.5 text-sm font-bold text-[#0a0f1e] transition hover:bg-[var(--gold-soft)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {status === "loading" ? "提交中…" : "预约"}
         </button>
