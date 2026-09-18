@@ -91,40 +91,17 @@ export const memberDues: MemberDues[] = [
 
 // From 成员ID对应表 sheet — links each member's real-life nickname (used in
 // 成员与缴费 / 对局记录 / 收支流水) to their in-game ID (used on the roster
-// page). rankedGames = 排位统计场次 (2026-08-20 ~ 08-31, queueId 440).
-export const memberIdMap: { nickname: string; gameId: string; tag: string; rankedGames: number }[] = [
-  { nickname: "志龙儿", gameId: "e说句爱我好吗", tag: "11807", rankedGames: 10 },
-  { nickname: "峰子哥", gameId: "只怪我更爱自己", tag: "74030", rankedGames: 15 },
-  { nickname: "平子哥", gameId: "很遗憾不是吗", tag: "86678", rankedGames: 24 },
-  { nickname: "kos", gameId: "他一定比我更温柔", tag: "44278", rankedGames: 5 },
-  { nickname: "松子哥", gameId: "讨好冷漠", tag: "43386", rankedGames: 19 },
-  { nickname: "帆子哥", gameId: "变成光守护嘉然然", tag: "74339", rankedGames: 17 },
-  { nickname: "郑儿朗", gameId: "喑糖浆", tag: "93803", rankedGames: 19 },
-  { nickname: "林子哥", gameId: "爱人要错过", tag: "50456", rankedGames: 2 },
+// page and to join against synced match data in src/lib/fundStats.ts).
+export const memberIdMap: { nickname: string; gameId: string; tag: string }[] = [
+  { nickname: "志龙儿", gameId: "e说句爱我好吗", tag: "11807" },
+  { nickname: "峰子哥", gameId: "只怪我更爱自己", tag: "74030" },
+  { nickname: "平子哥", gameId: "很遗憾不是吗", tag: "86678" },
+  { nickname: "kos", gameId: "他一定比我更温柔", tag: "44278" },
+  { nickname: "松子哥", gameId: "讨好冷漠", tag: "43386" },
+  { nickname: "帆子哥", gameId: "变成光守护嘉然然", tag: "74339" },
+  { nickname: "郑儿朗", gameId: "喑糖浆", tag: "93803" },
+  { nickname: "林子哥", gameId: "爱人要错过", tag: "50456" },
 ];
-
-// From 统计排名 sheet — auto-calculated from 对局记录, which has no rows
-// logged yet this trial month. Kept as zeros rather than invented numbers;
-// the page shows this as a pending/empty state.
-export type MemberStat = {
-  nickname: string;
-  rankedGames: number;
-  mvp: number;
-  svp: number;
-  mvpRate: number;
-  svpRate: number;
-  qualified: boolean;
-};
-
-export const memberStats: MemberStat[] = memberDues.map((m) => ({
-  nickname: m.nickname,
-  rankedGames: 0,
-  mvp: 0,
-  svp: 0,
-  mvpRate: 0,
-  svpRate: 0,
-  qualified: false,
-}));
 
 // From 奖金结算 sheet, amounts recalculated against the single standard
 // split (规则说明: 35/30/15/10/10 — the source sheet itself had drifted to

@@ -3,14 +3,16 @@ import {
   awardRules,
   memberDues,
   memberIdMap,
-  memberStats,
   settlement,
   ledger,
   currentBalance,
 } from "@/lib/fund";
+import { getLiveMemberStats, type LiveMemberStat } from "@/lib/fundStats";
 import ShareBar from "@/components/ShareBar";
 import StatTile from "@/components/StatTile";
 import Pill from "@/components/Pill";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "峡谷基金 · FZL Gaming",
@@ -28,10 +30,27 @@ function gameIdOf(nickname: string) {
   return memberIdMap.find((m) => m.nickname === nickname)?.gameId ?? null;
 }
 
-export default function FundPage() {
+// Placeholder shown until a first sync has run (or when the local dev
+// environment has no POSTGRES_URL) — same all-zero shape as before, just
+// derived rather than hand-maintained.
+const EMPTY_STATS: LiveMemberStat[] = memberIdMap.map((m) => ({
+  nickname: m.nickname,
+  gameId: m.gameId,
+  rankedGames: 0,
+  mvp: 0,
+  svp: 0,
+  mvpRate: 0,
+  svpRate: 0,
+  qualified: false,
+  teamGames: 0,
+}));
+
+export default async function FundPage() {
+  const liveStats = await getLiveMemberStats();
+  const memberStats = liveStats ?? EMPTY_STATS;
   const paidCount = memberDues.filter((m) => m.status === "已缴").length;
   const totalDues = memberDues.reduce((sum, m) => sum + m.amount, 0);
-  const hasMatchData = memberStats.some((s) => s.rankedGames > 0);
+  const hasMatchData = memberStats.some((s) => s.rankedGames > 0 || s.teamGames > 0);
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-16">
@@ -168,7 +187,10 @@ export default function FundPage() {
           {settlement.month} 奖金结算
         </h2>
         <p className="mb-6 text-sm text-[var(--muted)]">
-          奖金池 ¥{settlement.pool}，试运行首月暂无对局数据，全部奖项尚未发放。
+          奖金池 ¥{settlement.pool}，
+          {hasMatchData
+            ? "下方「排位数据统计」已有实时数据，具体获奖人与发放以保管人确认为准。"
+            : "试运行首月暂无对局数据，全部奖项尚未发放。"}
         </p>
         <div className="overflow-x-auto rounded-sm border border-[var(--border)]">
           <table className="w-full min-w-[560px] text-left text-sm">
@@ -221,12 +243,12 @@ export default function FundPage() {
       <section className="mb-16">
         <h2 className="font-display mb-1 text-2xl font-bold">排位数据统计</h2>
         <p className="mb-6 text-sm text-[var(--muted)]">
-          {hasMatchData
-            ? "数据来自「对局记录」自动统计。"
-            : "本月「对局记录」暂无每日填报，以下为占位结构，累计数据后自动更新。"}
+          {liveStats
+            ? "数据来自「战绩」页同步下来的对局记录，每次同步后自动更新（峡谷之巅：420/440 队列且车队五人同排；常驻嘉宾：任意已同步模式且车队三人及以上同队）。"
+            : "数据库还没接好，暂时显示占位结构；接上 Postgres 并同步过战绩后，这里会自动统计。"}
         </p>
         <div className="overflow-x-auto rounded-sm border border-[var(--border)]">
-          <table className="w-full min-w-[640px] text-left text-sm">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-[var(--bg-panel)] text-xs uppercase tracking-wider text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-3 font-medium">成员</th>
@@ -234,11 +256,14 @@ export default function FundPage() {
                 <th className="px-4 py-3 font-medium">MVP</th>
                 <th className="px-4 py-3 font-medium">SVP</th>
                 <th className="px-4 py-3 font-medium">平均 MVP 率</th>
-                <th className="px-4 py-3 font-medium">达标</th>
+                <th className="px-4 py-3 font-medium">达标（峡谷之巅）</th>
+                <th className="px-4 py-3 font-medium">全模式局数（常驻嘉宾）</th>
               </tr>
             </thead>
             <tbody>
-              {memberStats.map((s) => (
+              {[...memberStats]
+                .sort((a, b) => b.mvpRate - a.mvpRate || b.rankedGames - a.rankedGames)
+                .map((s) => (
                 <tr
                   key={s.nickname}
                   className="border-t border-[var(--border)] text-[var(--muted)]"
@@ -257,6 +282,7 @@ export default function FundPage() {
                       {s.qualified ? "达标" : "未达标"}
                     </Pill>
                   </td>
+                  <td className="px-4 py-3">{s.teamGames}</td>
                 </tr>
               ))}
             </tbody>
