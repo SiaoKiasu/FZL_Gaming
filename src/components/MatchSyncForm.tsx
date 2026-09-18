@@ -7,12 +7,14 @@ type SyncResult = {
   scannedGames: number;
   newGames: number;
   totalGames: number;
+  refreshedGames: number;
   perPlayer: { name: string; scanned: number; found: number }[];
 };
 
 export default function MatchSyncForm() {
   const router = useRouter();
   const [token, setToken] = useState("");
+  const [refreshAll, setRefreshAll] = useState(false);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState("");
@@ -26,7 +28,7 @@ export default function MatchSyncForm() {
       const resp = await fetch("/api/matches/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: token.trim() }),
+        body: JSON.stringify({ token: token.trim(), refreshAll }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -67,6 +69,16 @@ export default function MatchSyncForm() {
         </button>
       </form>
 
+      <label className="mt-3 flex items-center gap-2 text-xs text-[var(--muted)]">
+        <input
+          type="checkbox"
+          checked={refreshAll}
+          onChange={(e) => setRefreshAll(e.target.checked)}
+          className="accent-[var(--gold)]"
+        />
+        同时刷新已同步过的旧对局（较慢；只有战绩详情页加了新字段后想给旧对局补数据时才需要勾）
+      </label>
+
       {status === "error" ? (
         <p className="mt-3 text-sm text-[var(--status-critical)]">{error}</p>
       ) : null}
@@ -75,6 +87,7 @@ export default function MatchSyncForm() {
         <div className="mt-4 space-y-2 text-sm">
           <p className="text-[var(--status-good)]">
             新增 {result.newGames} 场车队排位（累计 {result.totalGames} 场）
+            {result.refreshedGames > 0 ? ` · 已刷新 ${result.refreshedGames} 场旧对局` : ""}
           </p>
           <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[var(--muted)] sm:grid-cols-4">
             {result.perPlayer.map((p) => (
