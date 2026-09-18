@@ -324,22 +324,30 @@ type LedgerRow = {
 };
 
 export async function getLedgerEntries(): Promise<LedgerEntry[]> {
-  const { rows } = await sql<LedgerRow>`
-    SELECT id, entry_date, type, item, income, expense, handler,
-           SUM(COALESCE(income, 0) - COALESCE(expense, 0)) OVER (ORDER BY entry_date, id) AS balance
-    FROM ledger_entries
-    ORDER BY entry_date ASC, id ASC
-  `;
-  return rows.map((r) => ({
-    id: r.id,
-    date: r.entry_date,
-    type: r.type,
-    item: r.item,
-    income: r.income === null ? null : Number(r.income),
-    expense: r.expense === null ? null : Number(r.expense),
-    balance: Number(r.balance),
-    handler: r.handler,
-  }));
+  try {
+    const { rows } = await sql<LedgerRow>`
+      SELECT id, entry_date, type, item, income, expense, handler,
+             SUM(COALESCE(income, 0) - COALESCE(expense, 0)) OVER (ORDER BY entry_date, id) AS balance
+      FROM ledger_entries
+      ORDER BY entry_date ASC, id ASC
+    `;
+    return rows.map((r) => ({
+      id: r.id,
+      date: r.entry_date,
+      type: r.type,
+      item: r.item,
+      income: r.income === null ? null : Number(r.income),
+      expense: r.expense === null ? null : Number(r.expense),
+      balance: Number(r.balance),
+      handler: r.handler,
+    }));
+  } catch {
+    // db/schema_ledger.sql hasn't been run against this database yet --
+    // treat "table doesn't exist" the same as "no entries yet" so the
+    // fund page still renders (with its static fallback) instead of
+    // crashing the whole route on a migration that's simply pending.
+    return [];
+  }
 }
 
 export type LedgerEntryInput = {
@@ -361,10 +369,16 @@ export async function insertLedgerEntry(entry: LedgerEntryInput): Promise<void> 
 const LEDGER_PASSWORD_KEY = "ledger_password_hash";
 
 export async function getLedgerPasswordHash(): Promise<string | null> {
-  const { rows } = await sql<{ value: string }>`
-    SELECT value FROM app_settings WHERE key = ${LEDGER_PASSWORD_KEY}
-  `;
-  return rows[0]?.value ?? null;
+  try {
+    const { rows } = await sql<{ value: string }>`
+      SELECT value FROM app_settings WHERE key = ${LEDGER_PASSWORD_KEY}
+    `;
+    return rows[0]?.value ?? null;
+  } catch {
+    // Same reasoning as getLedgerEntries() -- app_settings may not exist
+    // yet if the migration hasn't run.
+    return null;
+  }
 }
 
 // One-time claim: only succeeds while no password has been set yet, so
