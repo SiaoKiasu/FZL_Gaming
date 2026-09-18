@@ -37,8 +37,12 @@ export async function POST(req: NextRequest) {
     const { games, perPlayer } = await syncAllRosterGames(token);
     const known = await getKnownGameIds();
     const newGames = games.filter((g) => !known.has(g.gameId));
-    if (newGames.length) {
-      await insertGames(newGames);
+    // Upsert everything scanned, not just the new games -- insertGames does
+    // an ON CONFLICT ... DO UPDATE, so this also refreshes already-stored
+    // games whenever a schema/rating change adds fields they're missing,
+    // with no separate backfill step to remember to run.
+    if (games.length) {
+      await insertGames(games);
     }
     return NextResponse.json({
       scannedGames: games.length,

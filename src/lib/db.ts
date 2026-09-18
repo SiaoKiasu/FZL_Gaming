@@ -1,13 +1,16 @@
 import "server-only";
 
 import { sql } from "@vercel/postgres";
-import type { GameRecord } from "@/lib/sgp";
+import type { GameRecord, TeamStats } from "@/lib/sgp";
+
+export type { TeamStats };
 
 // Requires a Vercel Postgres store connected to this project (Storage tab
 // in the Vercel dashboard — it wires up POSTGRES_URL etc. automatically).
-// Run db/schema.sql once against it before the first sync, and
-// db/schema_matches_detail.sql once to add the extra per-player columns
-// used by the match detail page.
+// Run db/schema.sql once against it before the first sync, then
+// db/schema_matches_detail.sql, db/schema_schedule.sql,
+// db/schema_schedule_time.sql and db/schema_team_stats.sql once each to add
+// the columns added since.
 export function isDbConfigured(): boolean {
   return Boolean(process.env.POSTGRES_URL);
 }
@@ -17,12 +20,26 @@ export async function getKnownGameIds(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.game_id));
 }
 
+// Upserts on every sync (not just insert-if-new) so that a schema/rating
+// change picks up existing games automatically the next time someone syncs
+// -- there's no separate backfill step to remember to run.
 export async function insertGames(games: GameRecord[]): Promise<void> {
   for (const g of games) {
+    const teamStatsJson = g.teamStats ? JSON.stringify(g.teamStats) : null;
     await sql`
-      INSERT INTO matches (game_id, game_creation_ms, duration_min, queue_id, queue_name, game_mode, roster_count)
-      VALUES (${g.gameId}, ${g.gameCreationMs}, ${g.durationMin}, ${g.queueId}, ${g.queueName}, ${g.gameMode}, ${g.rosterCount})
-      ON CONFLICT (game_id) DO NOTHING
+      INSERT INTO matches (
+        game_id, game_creation_ms, duration_min, queue_id, queue_name, game_mode, roster_count, team_stats
+      ) VALUES (
+        ${g.gameId}, ${g.gameCreationMs}, ${g.durationMin}, ${g.queueId}, ${g.queueName}, ${g.gameMode}, ${g.rosterCount}, ${teamStatsJson}
+      )
+      ON CONFLICT (game_id) DO UPDATE SET
+        game_creation_ms = EXCLUDED.game_creation_ms,
+        duration_min = EXCLUDED.duration_min,
+        queue_id = EXCLUDED.queue_id,
+        queue_name = EXCLUDED.queue_name,
+        game_mode = EXCLUDED.game_mode,
+        roster_count = EXCLUDED.roster_count,
+        team_stats = EXCLUDED.team_stats
     `;
     for (const p of g.players) {
       await sql`
@@ -39,7 +56,39 @@ export async function insertGames(games: GameRecord[]): Promise<void> {
           ${p.damageTaken}, ${p.heal}, ${p.turretDamage}, ${p.ccTime}, ${p.cs}, ${p.visionScore}, ${p.wardsPlaced},
           ${p.wardsKilled}, ${p.champLevel}, ${p.items}
         )
-        ON CONFLICT (game_id, puuid) DO NOTHING
+        ON CONFLICT (game_id, puuid) DO UPDATE SET
+          member = EXCLUDED.member,
+          player_name = EXCLUDED.player_name,
+          team_id = EXCLUDED.team_id,
+          position = EXCLUDED.position,
+          champion = EXCLUDED.champion,
+          champion_id = EXCLUDED.champion_id,
+          spell1_id = EXCLUDED.spell1_id,
+          spell2_id = EXCLUDED.spell2_id,
+          win = EXCLUDED.win,
+          score = EXCLUDED.score,
+          award = EXCLUDED.award,
+          kills = EXCLUDED.kills,
+          deaths = EXCLUDED.deaths,
+          assists = EXCLUDED.assists,
+          kda = EXCLUDED.kda,
+          multi_kill = EXCLUDED.multi_kill,
+          first_blood = EXCLUDED.first_blood,
+          gold = EXCLUDED.gold,
+          damage_to_champions = EXCLUDED.damage_to_champions,
+          physical_damage = EXCLUDED.physical_damage,
+          magic_damage = EXCLUDED.magic_damage,
+          true_damage = EXCLUDED.true_damage,
+          damage_taken = EXCLUDED.damage_taken,
+          heal = EXCLUDED.heal,
+          turret_damage = EXCLUDED.turret_damage,
+          cc_time = EXCLUDED.cc_time,
+          cs = EXCLUDED.cs,
+          vision_score = EXCLUDED.vision_score,
+          wards_placed = EXCLUDED.wards_placed,
+          wards_killed = EXCLUDED.wards_killed,
+          champ_level = EXCLUDED.champ_level,
+          items = EXCLUDED.items
       `;
     }
   }
@@ -87,6 +136,9 @@ export type StoredMatch = {
   queueName: string;
   rosterCount: number;
   players: StoredPlayer[];
+  // Keyed by teamId string ("100"/"200"). Null for matches synced before
+  // db/schema_team_stats.sql, until the next re-sync refreshes them.
+  teamStats: Record<string, TeamStats> | null;
 };
 
 type PlayerRow = {
@@ -130,6 +182,7 @@ type MatchRow = {
   duration_min: number;
   queue_name: string;
   roster_count: number;
+  team_stats: string | null;
 } & PlayerRow;
 
 // Old rows synced before db/schema_matches_detail.sql was added come back
@@ -172,6 +225,15 @@ function toPlayer(r: PlayerRow): StoredPlayer {
   };
 }
 
+function parseTeamStats(raw: string | null): Record<string, TeamStats> | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, TeamStats>;
+  } catch {
+    return null;
+  }
+}
+
 function groupMatches(rows: MatchRow[]): StoredMatch[] {
   const byGame = new Map<string, StoredMatch>();
   const order: string[] = [];
@@ -184,6 +246,7 @@ function groupMatches(rows: MatchRow[]): StoredMatch[] {
         queueName: r.queue_name,
         rosterCount: r.roster_count,
         players: [],
+        teamStats: parseTeamStats(r.team_stats),
       });
       order.push(r.game_id);
     }
@@ -198,14 +261,14 @@ export async function listMatches(limit = 100): Promise<StoredMatch[]> {
   // accepts primitive values, so the column list is spelled out below
   // rather than shared via a helper.)
   const { rows } = await sql<MatchRow>`
-    SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count,
+    SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count, m.team_stats,
            mp.member, mp.player_name, mp.team_id, mp.position, mp.champion, mp.champion_id,
            mp.spell1_id, mp.spell2_id, mp.win, mp.score, mp.award, mp.kills, mp.deaths, mp.assists,
            mp.kda, mp.multi_kill, mp.first_blood, mp.gold, mp.damage_to_champions, mp.physical_damage,
            mp.magic_damage, mp.true_damage, mp.damage_taken, mp.heal, mp.turret_damage, mp.cc_time,
            mp.cs, mp.vision_score, mp.wards_placed, mp.wards_killed, mp.champ_level, mp.items
     FROM (
-      SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count
+      SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count, team_stats
       FROM matches
       ORDER BY game_creation_ms DESC
       LIMIT ${limit}
@@ -218,7 +281,7 @@ export async function listMatches(limit = 100): Promise<StoredMatch[]> {
 
 export async function getMatch(gameId: string): Promise<StoredMatch | null> {
   const { rows } = await sql<MatchRow>`
-    SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count,
+    SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count, m.team_stats,
            mp.member, mp.player_name, mp.team_id, mp.position, mp.champion, mp.champion_id,
            mp.spell1_id, mp.spell2_id, mp.win, mp.score, mp.award, mp.kills, mp.deaths, mp.assists,
            mp.kda, mp.multi_kill, mp.first_blood, mp.gold, mp.damage_to_champions, mp.physical_damage,

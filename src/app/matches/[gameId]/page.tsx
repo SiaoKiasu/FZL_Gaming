@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getMatch, type StoredPlayer } from "@/lib/db";
+import champNameData from "@/data/champions.json";
+import { getMatch, type StoredPlayer, type TeamStats } from "@/lib/db";
 import {
   championIconUrl,
   getChampionIconMap,
@@ -13,6 +14,8 @@ import {
 import Pill from "@/components/Pill";
 
 export const dynamic = "force-dynamic";
+
+const champNameMap = champNameData as Record<string, string>;
 
 const POSITION_ORDER: Record<string, number> = {
   TOP: 0,
@@ -100,14 +103,115 @@ function DamageBreakdown({ p, maxTotal }: { p: StoredPlayer; maxTotal: number })
   );
 }
 
+// ---- Per-player "本局定位" hexagon -----------------------------------
+// Every axis is this player's stat as a percentage of THEIR OWN TEAM'S
+// average for that stat, so "100" always means "exactly average" and the
+// reference hexagon (dashed) is a perfect regular hexagon by construction.
+// That gives an at-a-glance read of over/under-performance across
+// teammates without needing a second overlaid polygon.
+type HexAxis = { label: string; ratio: number };
+
+function avg(values: number[]): number {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+}
+
+function ratioToAvg(value: number, teamAvg: number): number {
+  return teamAvg > 0 ? (value / teamAvg) * 100 : 100;
+}
+
+function kdaValue(p: StoredPlayer): number {
+  return p.kda ?? (p.kills + p.assists) / Math.max(p.deaths, 1);
+}
+
+function buildHexAxes(p: StoredPlayer, team: StoredPlayer[]): HexAxis[] {
+  const teamKills = Math.max(team.reduce((s, x) => s + x.kills, 0), 0);
+  const participationOf = (x: StoredPlayer) => (teamKills > 0 ? ((x.kills + x.assists) / teamKills) * 100 : 0);
+  const avgParticipation = avg(team.map(participationOf));
+  const avgGold = avg(team.map((x) => x.gold));
+  const avgHeal = avg(team.map((x) => x.heal));
+  const avgDamage = avg(team.map((x) => x.damageToChampions));
+  const avgTaken = avg(team.map((x) => x.damageTaken));
+  const avgKda = avg(team.map(kdaValue));
+
+  return [
+    { label: "参团率", ratio: ratioToAvg(participationOf(p), avgParticipation) },
+    { label: "经济", ratio: ratioToAvg(p.gold, avgGold) },
+    { label: "伤害", ratio: ratioToAvg(p.damageToChampions, avgDamage) },
+    { label: "承伤", ratio: ratioToAvg(p.damageTaken, avgTaken) },
+    { label: "治疗", ratio: ratioToAvg(p.heal, avgHeal) },
+    { label: "KDA", ratio: ratioToAvg(kdaValue(p), avgKda) },
+  ];
+}
+
+function hexPoint(index: number, count: number, radius: number, cx: number, cy: number): [number, number] {
+  const angle = (Math.PI / 180) * (index * (360 / count) - 90);
+  return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
+}
+
+function RadarChart({ axes, size = 108 }: { axes: HexAxis[]; size?: number }) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const R = size / 2 - 16;
+  const toPath = (pts: [number, number][]) => pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  // Ratios are averages-relative (100 = team average); clamp the drawn
+  // radius at 200% of average so one outlier stat can't blow up the shape.
+  const scale = (ratio: number) => (Math.max(0, Math.min(200, ratio)) / 200) * R;
+  const refPoints = axes.map((_, i) => hexPoint(i, axes.length, R / 2, cx, cy));
+  const playerPoints = axes.map((a, i) => hexPoint(i, axes.length, scale(a.ratio), cx, cy));
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <polygon
+          key={f}
+          points={toPath(axes.map((_, i) => hexPoint(i, axes.length, R * f, cx, cy)))}
+          fill="none"
+          stroke="rgba(255,255,255,0.07)"
+        />
+      ))}
+      <polygon points={toPath(refPoints)} fill="none" stroke="rgba(231,182,85,0.4)" strokeDasharray="2,2" />
+      <polygon points={toPath(playerPoints)} fill="rgba(231,182,85,0.22)" stroke="var(--gold)" strokeWidth="1.5" />
+      {axes.map((a, i) => {
+        const [lx, ly] = hexPoint(i, axes.length, R + 10, cx, cy);
+        return (
+          <text key={a.label} x={lx} y={ly} fontSize="7.5" textAnchor="middle" dominantBaseline="middle" fill="var(--muted)">
+            {a.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+function HexLegend({ axes }: { axes: HexAxis[] }) {
+  return (
+    <div className="grid flex-1 grid-cols-2 content-center gap-x-3 gap-y-1 text-[10px]">
+      {axes.map((a) => (
+        <div key={a.label} className="flex items-center justify-between gap-2">
+          <span className="text-[var(--muted)]">{a.label}</span>
+          <span
+            className={`tabular-nums font-medium ${
+              a.ratio >= 100 ? "text-[var(--status-good)]" : "text-[var(--muted)]"
+            }`}
+          >
+            {Math.round(a.ratio)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PlayerDetailCard({
   p,
+  team,
   version,
   championMap,
   spellMap,
   maxima,
 }: {
   p: StoredPlayer;
+  team: StoredPlayer[];
   version: string;
   championMap: Record<number, string>;
   spellMap: Record<number, string>;
@@ -117,6 +221,7 @@ function PlayerDetailCard({
   const champIcon = championIconUrl(version, championMap, p.championId);
   const spell1 = summonerSpellIconUrl(version, spellMap, p.spell1Id);
   const spell2 = summonerSpellIconUrl(version, spellMap, p.spell2Id);
+  const hexAxes = buildHexAxes(p, team);
 
   return (
     <div
@@ -214,6 +319,11 @@ function PlayerDetailCard({
           <StatBar value={p.gold} max={maxima.gold} />
         </StatCell>
       </div>
+
+      <div className="mt-3 flex items-center gap-3 border-t border-[var(--border)]/40 pt-3">
+        <RadarChart axes={hexAxes} />
+        <HexLegend axes={hexAxes} />
+      </div>
     </div>
   );
 }
@@ -256,11 +366,190 @@ function TeamSection({
           <PlayerDetailCard
             key={p.playerName}
             p={p}
+            team={players}
             version={version}
             championMap={championMap}
             spellMap={spellMap}
             maxima={maxima}
           />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---- Match-wide recap: bans, objectives, team totals ------------------
+type ObjectiveKey = "dragon" | "baron" | "tower" | "inhibitor" | "riftHerald" | "atakhan" | "horde";
+const OBJECTIVE_ROWS: { key: ObjectiveKey; label: string }[] = [
+  { key: "tower", label: "防御塔" },
+  { key: "inhibitor", label: "水晶" },
+  { key: "dragon", label: "小龙" },
+  { key: "baron", label: "大龙" },
+  { key: "riftHerald", label: "峡谷先锋" },
+  { key: "atakhan", label: "阿塔坎" },
+  { key: "horde", label: "虚空幼虫" },
+];
+// Standard Summoner's Rift objectives always show, even at 0-0 -- that's
+// still meaningful ("neither team touched dragons"). Atakhan/horde are
+// newer additions that don't exist on every map/patch, so they only show
+// up when someone actually recorded a kill on them.
+const ALWAYS_SHOW_OBJECTIVE = new Set<ObjectiveKey>(["tower", "inhibitor", "dragon", "baron", "riftHerald"]);
+
+function sumBy(players: StoredPlayer[], get: (p: StoredPlayer) => number): number {
+  return players.reduce((s, p) => s + get(p), 0);
+}
+
+function CompareRow({
+  label,
+  blue,
+  red,
+  formatValue,
+}: {
+  label: string;
+  blue: number;
+  red: number;
+  formatValue?: (n: number) => string;
+}) {
+  const total = Math.max(blue + red, 1);
+  const fmt = formatValue ?? ((n: number) => String(n));
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-8 shrink-0 text-right font-medium tabular-nums text-[var(--status-good)] sm:w-14">
+        {fmt(blue)}
+      </span>
+      <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
+        <div className="bg-[var(--status-good)]/70" style={{ width: `${(blue / total) * 100}%` }} />
+        <div className="bg-[var(--status-critical)]/70" style={{ width: `${(red / total) * 100}%` }} />
+      </div>
+      <span className="w-8 shrink-0 font-medium tabular-nums text-[var(--status-critical)] sm:w-14">{fmt(red)}</span>
+      <span className="w-14 shrink-0 text-center text-[var(--muted)] sm:w-16">{label}</span>
+    </div>
+  );
+}
+
+function BansStrip({
+  label,
+  bans,
+  championMap,
+  version,
+}: {
+  label: string;
+  bans: number[];
+  championMap: Record<number, string>;
+  version: string;
+}) {
+  return (
+    <div>
+      <p className="mb-1.5 text-[10px] uppercase tracking-wide text-[var(--muted)]">{label}</p>
+      <div className="flex flex-wrap gap-1">
+        {bans.length ? (
+          bans.map((id, i) => {
+            const url = championIconUrl(version, championMap, id);
+            const name = champNameMap[String(id)] ?? "";
+            return url ? (
+              <img
+                key={i}
+                src={url}
+                alt={name}
+                title={name}
+                width={26}
+                height={26}
+                className="rounded-[4px] border border-[var(--border)] opacity-75 grayscale"
+              />
+            ) : (
+              <span key={i} className="h-[26px] w-[26px] rounded-[4px] border border-dashed border-[var(--border)]" />
+            );
+          })
+        ) : (
+          <span className="text-xs text-[var(--muted)]">无禁用</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TeamOverview({
+  players,
+  teamStats,
+  championMap,
+  version,
+}: {
+  players: StoredPlayer[];
+  teamStats: Record<string, TeamStats> | null;
+  championMap: Record<number, string>;
+  version: string;
+}) {
+  const teamA = players.filter((p) => p.teamId === 100);
+  const teamB = players.filter((p) => p.teamId === 200);
+  const blue = teamStats?.["100"] ?? null;
+  const red = teamStats?.["200"] ?? null;
+
+  const totals: { label: string; blue: number; red: number; formatValue?: (n: number) => string }[] = [
+    { label: "总击杀", blue: sumBy(teamA, (p) => p.kills), red: sumBy(teamB, (p) => p.kills) },
+    {
+      label: "总经济",
+      blue: sumBy(teamA, (p) => p.gold),
+      red: sumBy(teamB, (p) => p.gold),
+      formatValue: (n) => n.toLocaleString("zh-CN"),
+    },
+    {
+      label: "总伤害",
+      blue: sumBy(teamA, (p) => p.damageToChampions),
+      red: sumBy(teamB, (p) => p.damageToChampions),
+      formatValue: (n) => n.toLocaleString("zh-CN"),
+    },
+    {
+      label: "总承伤",
+      blue: sumBy(teamA, (p) => p.damageTaken),
+      red: sumBy(teamB, (p) => p.damageTaken),
+      formatValue: (n) => n.toLocaleString("zh-CN"),
+    },
+    {
+      label: "总治疗",
+      blue: sumBy(teamA, (p) => p.heal),
+      red: sumBy(teamB, (p) => p.heal),
+      formatValue: (n) => n.toLocaleString("zh-CN"),
+    },
+    { label: "总视野", blue: sumBy(teamA, (p) => p.visionScore), red: sumBy(teamB, (p) => p.visionScore) },
+  ];
+
+  const objectiveRows =
+    blue && red
+      ? OBJECTIVE_ROWS.filter((row) => ALWAYS_SHOW_OBJECTIVE.has(row.key) || blue[row.key] > 0 || red[row.key] > 0)
+      : [];
+
+  return (
+    <div className="mb-6 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4 sm:p-5">
+      <p className="font-display mb-3 text-sm font-bold uppercase tracking-wider text-[var(--gold)]">对局概览</p>
+
+      {blue && red ? (
+        <>
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <BansStrip label="蓝色方禁用" bans={blue.bans} championMap={championMap} version={version} />
+            <BansStrip label="红色方禁用" bans={red.bans} championMap={championMap} version={version} />
+          </div>
+          {(blue.firstBlood || red.firstBlood) && (
+            <p className="mb-3 text-xs text-[var(--muted)]">
+              一血：<span className={blue.firstBlood ? "text-[var(--status-good)]" : "text-[var(--status-critical)]"}>
+                {blue.firstBlood ? "蓝色方" : "红色方"}
+              </span>
+            </p>
+          )}
+          <div className="space-y-1.5">
+            {objectiveRows.map((row) => (
+              <CompareRow key={row.key} label={row.label} blue={Number(blue[row.key])} red={Number(red[row.key])} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="mb-4 text-xs text-[var(--muted)]">
+          这场对局的目标 / 禁用数据还没同步（旧数据），重新点一次同步会自动补上。
+        </p>
+      )}
+
+      <div className="mt-4 space-y-1.5 border-t border-[var(--border)]/40 pt-4">
+        {totals.map((row) => (
+          <CompareRow key={row.label} label={row.label} blue={row.blue} red={row.red} formatValue={row.formatValue} />
         ))}
       </div>
     </div>
@@ -317,6 +606,8 @@ export default async function MatchDetailPage({
         <Pill tone="neutral">{match.durationMin} 分钟</Pill>
         <Pill tone="neutral">车队 {match.rosterCount} 人同队</Pill>
       </div>
+
+      <TeamOverview players={match.players} teamStats={match.teamStats} championMap={championMap} version={version} />
 
       <div className="space-y-6">
         <TeamSection label="蓝色方" win={win} players={teamA} version={version} championMap={championMap} spellMap={spellMap} maxima={maxima} />

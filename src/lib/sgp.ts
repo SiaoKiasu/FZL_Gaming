@@ -184,6 +184,18 @@ export type PlayerRow = {
   items: string;
 };
 
+export type TeamStats = {
+  bans: number[];
+  dragon: number;
+  baron: number;
+  tower: number;
+  inhibitor: number;
+  riftHerald: number;
+  atakhan: number;
+  horde: number;
+  firstBlood: boolean;
+};
+
 export type GameRecord = {
   gameId: string;
   gameCreationMs: number;
@@ -193,9 +205,48 @@ export type GameRecord = {
   gameMode: string;
   rosterCount: number;
   players: PlayerRow[];
+  // Keyed by teamId ("100"/"200") -- null for the rare game whose raw
+  // response has no `teams` block (older client versions).
+  teamStats: Record<string, TeamStats> | null;
 };
 
 const champNameMap = championMap as Record<string, string>;
+
+/** Per-team objectives (dragon/baron/tower/... kills) and bans, straight
+ * off the raw response's `teams` block -- confirmed against a real saved
+ * match (LOL/lol_ranked_sync/raw/games/*.json): each entry has
+ * {bans:[{championId,pickTurn}], objectives:{dragon:{first,kills}, baron:
+ * {...}, tower:{...}, inhibitor:{...}, riftHerald:{...}, atakhan:{...},
+ * horde:{...}, champion:{first,kills}}, teamId, win}. ARAM games report the
+ * same shape with 0s for Summoner's Rift-only objectives (no dragon/baron
+ * there), so this reads safely across queues without guessing at a
+ * mode-specific schema. */
+function buildTeamStats(g: Json): Record<string, TeamStats> | null {
+  const teams = (g.teams as Json[]) ?? [];
+  if (!teams.length) return null;
+  const out: Record<string, TeamStats> = {};
+  for (const t of teams) {
+    const teamId = String(t.teamId ?? "");
+    if (!teamId) continue;
+    const bans = ((t.bans as Json[]) ?? [])
+      .map((b) => Number(b.championId))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const objectives = (t.objectives as Json) ?? {};
+    const killsOf = (key: string) => num(((objectives[key] as Json) ?? {}).kills);
+    out[teamId] = {
+      bans,
+      dragon: killsOf("dragon"),
+      baron: killsOf("baron"),
+      tower: killsOf("tower"),
+      inhibitor: killsOf("inhibitor"),
+      riftHerald: killsOf("riftHerald"),
+      atakhan: killsOf("atakhan"),
+      horde: killsOf("horde"),
+      firstBlood: Boolean(((objectives.champion as Json) ?? {}).first),
+    };
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 export function buildGameRecord(g: Json): GameRecord {
   const participants = (g.participants as Json[]) ?? [];
@@ -273,6 +324,7 @@ export function buildGameRecord(g: Json): GameRecord {
     gameMode: String(pick(g, "gameMode") ?? ""),
     rosterCount: teamRosterCount(g, participants),
     players,
+    teamStats: buildTeamStats(g),
   };
 }
 
