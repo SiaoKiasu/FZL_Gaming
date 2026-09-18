@@ -75,11 +75,11 @@ function TeamBlock({
           return (
             <div
               key={p.playerName}
-              className={`flex items-center gap-3 rounded-sm px-2 py-1.5 text-xs ${
+              className={`flex items-center gap-2 rounded-sm px-1.5 py-1.5 text-xs sm:gap-3 sm:px-2 ${
                 p.member ? "bg-[var(--gold)]/[0.06]" : ""
               }`}
             >
-              <span className="w-8 shrink-0 text-[10px] font-medium text-[var(--muted)]">
+              <span className="hidden w-8 shrink-0 text-[10px] font-medium text-[var(--muted)] sm:block">
                 {POSITION_LABEL[p.position] ?? "-"}
               </span>
               {iconUrl ? (
@@ -88,13 +88,13 @@ function TeamBlock({
                 <span className="h-5 w-5 shrink-0 rounded-full border border-dashed border-[var(--border)]" />
               )}
               <span
-                className={`w-20 shrink-0 truncate font-medium ${
+                className={`w-14 shrink-0 truncate font-medium sm:w-20 ${
                   p.member ? "text-[var(--foreground)]" : "text-[var(--muted)]"
                 }`}
               >
                 {p.member || p.playerName.split("#")[0]}
               </span>
-              <span className="w-16 shrink-0 truncate text-[var(--muted)]">{p.champion}</span>
+              <span className="hidden w-16 shrink-0 truncate text-[var(--muted)] sm:block">{p.champion}</span>
               <span className="ml-auto shrink-0 tabular-nums text-[var(--foreground)]">
                 {p.kills}/{p.deaths}/{p.assists}
               </span>
@@ -121,7 +121,7 @@ function MatchCard({
   return (
     <Link
       href={`/matches/${match.gameId}`}
-      className="group block rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5 transition hover:border-[var(--gold)]/60"
+      className="group block rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4 transition hover:border-[var(--gold)]/60 sm:p-5"
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">

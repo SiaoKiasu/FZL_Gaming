@@ -161,7 +161,7 @@ function PlayerDetailCard({
           </div>
         </div>
 
-        <div className="text-right">
+        <div className="ml-auto text-right">
           <p className="tabular-nums">
             <span className="text-lg font-semibold text-[var(--foreground)]">
               {p.kills}/{p.deaths}/{p.assists}
@@ -303,7 +303,7 @@ export default async function MatchDetailPage({
   const maxima = computeMaxima(match.players);
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-16">
+    <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-16">
       <Link
         href="/matches"
         className="text-sm text-[var(--gold)] hover:text-[var(--gold-soft)]"

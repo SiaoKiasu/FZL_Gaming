@@ -35,7 +35,7 @@ const comingSoon = [
 export default function Home() {
   return (
     <div>
-      <section className="relative overflow-hidden px-6 pb-20 pt-24">
+      <section className="relative overflow-hidden px-4 pb-14 pt-16 sm:px-6 sm:pb-20 sm:pt-24">
         <div
           className="pointer-events-none absolute inset-0 -z-10 opacity-60"
           style={{
@@ -47,7 +47,7 @@ export default function Home() {
           <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--gold)]">
             Official Team Portal
           </p>
-          <h1 className="font-display mt-4 text-6xl font-extrabold tracking-tight sm:text-7xl">
+          <h1 className="font-display mt-4 text-4xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl">
             {TEAM_NAME}
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-base text-[var(--muted)]">
@@ -64,7 +64,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-24">
+      <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 sm:pb-24">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {quickLinks.map((item) => (
             <Link

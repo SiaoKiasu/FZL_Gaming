@@ -92,7 +92,7 @@ export default async function SchedulePage({
   const nextMonth = addMonths(selectedDate, 1);
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-16">
+    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-16">
       <div className="mb-10 text-center">
         <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--gold)]">
           Daily Sign-up

@@ -53,7 +53,7 @@ export default async function FundPage() {
   const hasMatchData = memberStats.some((s) => s.rankedGames > 0 || s.teamGames > 0);
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-16">
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-16">
       <div className="mb-4 text-center">
         <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--gold)]">
           Team Prize Fund
@@ -251,7 +251,7 @@ export default async function FundPage() {
 
         <div className="grid gap-4 lg:grid-cols-3">
           {/* 峡谷之巅 */}
-          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4 sm:p-5">
             <div className="mb-1 flex items-center justify-between">
               <h3 className="font-semibold">峡谷之巅</h3>
               <span
@@ -281,7 +281,7 @@ export default async function FundPage() {
                   {sorted.map((s) => (
                     <div
                       key={s.nickname}
-                      className={`flex items-center justify-between rounded-sm px-2 py-1.5 text-xs ${
+                      className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-sm px-2 py-1.5 text-xs ${
                         s.nickname === leaderId ? "bg-[var(--gold)]/10" : ""
                       }`}
                     >
@@ -303,7 +303,7 @@ export default async function FundPage() {
           </div>
 
           {/* 天选之子 -- 天命杯是队内另外组织的临时抽签赛制，不在同步的战绩数据里 */}
-          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4 sm:p-5">
             <div className="mb-1 flex items-center justify-between">
               <h3 className="font-semibold">天选之子</h3>
               <span
@@ -334,7 +334,7 @@ export default async function FundPage() {
           </div>
 
           {/* 常驻嘉宾 */}
-          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4 sm:p-5">
             <div className="mb-1 flex items-center justify-between">
               <h3 className="font-semibold">常驻嘉宾</h3>
               <span
@@ -362,7 +362,7 @@ export default async function FundPage() {
                   {sorted.map((s) => (
                     <div
                       key={s.nickname}
-                      className={`flex items-center justify-between rounded-sm px-2 py-1.5 text-xs ${
+                      className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-sm px-2 py-1.5 text-xs ${
                         s.nickname === leaderId ? "bg-[var(--gold)]/10" : ""
                       }`}
                     >

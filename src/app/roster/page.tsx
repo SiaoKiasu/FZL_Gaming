@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function RosterPage() {
   return (
-    <div className="mx-auto max-w-6xl px-6 py-16">
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-16">
       <div className="mb-12 text-center">
         <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--gold)]">
           Official Roster
