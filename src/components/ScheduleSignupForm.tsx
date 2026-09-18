@@ -4,7 +4,14 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { POSITIONS, POSITION_LABEL } from "@/lib/positions";
-import { formatMinutes, parseTimeString, roundToStep } from "@/lib/time";
+import { formatMinutes, MAX_MINUTE, parseTimeString, roundToStep } from "@/lib/time";
+
+// Half-hour candidates across the whole day, offered via <datalist> so the
+// native time picker shows quick options without losing free entry -- any
+// 5-minute-aligned value still works, this is just a shortlist.
+const TIME_CANDIDATES = Array.from({ length: Math.floor(MAX_MINUTE / 30) + 1 }, (_, i) =>
+  formatMinutes(Math.min(i * 30, MAX_MINUTE))
+);
 
 type ExistingSignup = {
   position: string;
@@ -110,7 +117,6 @@ export default function ScheduleSignupForm({
       </p>
 
       <div className="mt-4">
-        <p className="mb-2 text-xs text-[var(--muted)]">你是谁</p>
         <div className="grid grid-cols-4 gap-3">
           {members.map((m) => (
             <button
@@ -161,11 +167,12 @@ export default function ScheduleSignupForm({
       </div>
 
       <div className="mt-5">
-        <p className="mb-2 text-xs text-[var(--muted)]">预约时间段（5 分钟为单位，可留空）</p>
+        <p className="mb-2 text-xs text-[var(--muted)]">预约时间段</p>
         <div className="flex flex-wrap items-center gap-3">
           <input
             type="time"
             step={300}
+            list="fzl-time-options"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
             onBlur={(e) => snapTime(e.target.value, setStartTime)}
@@ -175,6 +182,7 @@ export default function ScheduleSignupForm({
           <input
             type="time"
             step={300}
+            list="fzl-time-options"
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
             onBlur={(e) => snapTime(e.target.value, setEndTime)}
@@ -186,6 +194,11 @@ export default function ScheduleSignupForm({
             </span>
           ) : null}
         </div>
+        <datalist id="fzl-time-options">
+          {TIME_CANDIDATES.map((t) => (
+            <option key={t} value={t} />
+          ))}
+        </datalist>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">

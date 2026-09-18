@@ -9,6 +9,7 @@ import championMap from "@/data/champions.json";
 import Pill from "@/components/Pill";
 import ScheduleSignupForm from "@/components/ScheduleSignupForm";
 import ScheduleTimeline from "@/components/ScheduleTimeline";
+import CancelSignupButton from "@/components/CancelSignupButton";
 
 export const dynamic = "force-dynamic";
 
@@ -207,7 +208,7 @@ export default async function SchedulePage({
                           />
                         </span>
                       ) : null}
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-1 flex-wrap items-center gap-2">
                         <span className="font-display font-bold text-[var(--foreground)]">{s.member}</span>
                         {isPosition(s.position) ? (
                           <Pill tone="neutral">{POSITION_LABEL[s.position]}</Pill>
@@ -223,6 +224,7 @@ export default async function SchedulePage({
                           </Pill>
                         ))}
                       </div>
+                      <CancelSignupButton date={selectedDate} member={s.member} />
                     </div>
                     {s.declaration ? (
                       <p className="mt-3 border-l-2 border-[var(--gold)]/50 pl-3 text-sm italic text-[var(--muted)]">

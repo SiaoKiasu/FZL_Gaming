@@ -77,6 +77,10 @@ export async function getSignupDatesInRange(startDate: string, endDate: string):
   return new Set(rows.map((r) => r.signup_date));
 }
 
+export async function deleteSignup(date: string, member: string): Promise<void> {
+  await sql`DELETE FROM signups WHERE signup_date = ${date} AND member = ${member}`;
+}
+
 export type SignupInput = {
   date: string;
   member: string;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured } from "@/lib/db";
-import { upsertSignup } from "@/lib/schedule";
+import { deleteSignup, upsertSignup } from "@/lib/schedule";
 import { isPosition } from "@/lib/positions";
 import { isValidMinute, parseTimeString } from "@/lib/time";
 import { roster } from "@/lib/roster";
@@ -88,6 +88,38 @@ export async function POST(req: Request) {
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "预约失败" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: Request) {
+  if (!isDbConfigured()) {
+    return NextResponse.json({ error: "数据库还没接好" }, { status: 503 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "请求格式不对" }, { status: 400 });
+  }
+
+  const { date, member } = (body ?? {}) as Record<string, unknown>;
+
+  if (typeof date !== "string" || !DATE_RE.test(date)) {
+    return NextResponse.json({ error: "日期格式不对" }, { status: 400 });
+  }
+  if (typeof member !== "string" || !knownMembers.has(member)) {
+    return NextResponse.json({ error: "请选择车队成员" }, { status: 400 });
+  }
+
+  try {
+    await deleteSignup(date, member);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "取消失败" },
       { status: 500 }
     );
   }
