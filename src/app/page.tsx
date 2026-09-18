@@ -1,22 +1,31 @@
 import Link from "next/link";
-import Image from "next/image";
-import { roster, TEAM_NAME } from "@/lib/roster";
+import { TEAM_NAME } from "@/lib/roster";
 
-const roadmap = [
+const quickLinks = [
   {
-    title: "实时在线状态",
-    status: "规划中",
-    desc: "接入外部后端，展示车队成员的实时在线与游戏中状态。",
+    href: "/matches",
+    eyebrow: "Match History",
+    title: "战绩",
+    desc: "同步全队排位对局,含 MVP / SVP 评分与详细数据。",
+    cta: "查看战绩 →",
   },
   {
-    title: "对局数据统计",
-    status: "规划中",
-    desc: "同步排位战绩，沉淀个人与战队维度的数据面板。",
+    href: "/fund",
+    eyebrow: "Team Prize Fund",
+    title: "峡谷基金",
+    desc: "奖金池分配规则、缴费情况、月度结算与收支流水。",
+    cta: "查看详情 →",
+  },
+];
+
+const comingSoon = [
+  {
+    title: "视频 / 集锦",
+    desc: "比赛录像与个人集锦上传,集中展示与回顾。",
   },
   {
-    title: "视频 / 集锦上传",
-    status: "规划中",
-    desc: "支持车队成员上传比赛录像与集锦，集中展示与回顾。",
+    title: "赛程",
+    desc: "车队参加的比赛日程与结果,一目了然。",
   },
 ];
 
@@ -39,7 +48,7 @@ export default function Home() {
             {TEAM_NAME}
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-base text-[var(--muted)]">
-            车队专属门户 —— 选手名单、数据与更多内容将陆续在这里上线。
+            车队专属门户 —— 选手名单、排位战绩、峡谷基金,更多内容持续上线。
           </p>
           <div className="mt-10 flex items-center justify-center gap-4">
             <Link
@@ -52,77 +61,54 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-20">
-        <div className="mb-6 flex items-baseline justify-between">
-          <h2 className="font-display text-2xl font-bold">选手一览</h2>
-          <Link
-            href="/roster"
-            className="text-sm text-[var(--gold)] hover:text-[var(--gold-soft)]"
-          >
-            查看全部 →
-          </Link>
-        </div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
-          {roster.map((p) => (
+      <section className="mx-auto max-w-6xl px-6 pb-24">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {quickLinks.map((item) => (
             <Link
-              href="/roster"
-              key={p.id}
-              className="group flex flex-col items-center gap-2"
+              href={item.href}
+              key={item.href}
+              className="group flex flex-col justify-between gap-4 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 transition hover:border-[var(--gold)]/60"
             >
-              <div className="relative aspect-square w-full overflow-hidden rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]">
-                <Image
-                  src={p.photo}
-                  alt={p.nickname}
-                  fill
-                  className="object-cover transition duration-300 group-hover:scale-105"
-                  sizes="200px"
-                />
+              <div>
+                <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--gold)]">
+                  {item.eyebrow}
+                </p>
+                <h2 className="font-display mt-2 text-2xl font-bold">
+                  {item.title}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">{item.desc}</p>
               </div>
-              <span className="line-clamp-1 text-center text-xs text-[var(--muted)] group-hover:text-[var(--gold)]">
-                {p.nickname}
+              <span className="self-start rounded-sm border border-[var(--gold)]/40 px-4 py-2 text-sm font-semibold text-[var(--gold)] transition group-hover:bg-[var(--gold)] group-hover:text-[#0a0f1e]">
+                {item.cta}
               </span>
             </Link>
           ))}
-        </div>
-      </section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-16">
-        <Link
-          href="/fund"
-          className="group flex flex-col items-start justify-between gap-4 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 transition hover:border-[var(--gold)]/60 sm:flex-row sm:items-center"
-        >
-          <div>
-            <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--gold)]">
-              Team Prize Fund
-            </p>
-            <h2 className="font-display mt-2 text-2xl font-bold">
-              峡谷基金
-            </h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              奖金池分配规则、缴费情况、月度结算与收支流水 —— 全部数据实时可查。
-            </p>
-          </div>
-          <span className="rounded-sm border border-[var(--gold)]/40 px-4 py-2 text-sm font-semibold text-[var(--gold)] transition group-hover:bg-[var(--gold)] group-hover:text-[#0a0f1e]">
-            查看详情 →
-          </span>
-        </Link>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 pb-24">
-        <h2 className="font-display mb-6 text-2xl font-bold">功能规划</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {roadmap.map((r) => (
+          {comingSoon.map((item) => (
             <div
-              key={r.title}
-              className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5"
+              key={item.title}
+              className="flex flex-col justify-between gap-4 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]/60 p-6"
             >
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="font-semibold">{r.title}</h3>
-                <span className="rounded-sm border border-[var(--border)] px-2 py-0.5 text-[10px] tracking-wide text-[var(--gold)]">
-                  {r.status}
-                </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--muted)]">
+                    Highlights
+                  </p>
+                  <span className="rounded-sm border border-[var(--border)] px-1 text-[10px] tracking-wide text-[var(--gold)]">
+                    SOON
+                  </span>
+                </div>
+                <h2 className="font-display mt-2 text-2xl font-bold text-[var(--muted)]">
+                  {item.title}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">{item.desc}</p>
               </div>
-              <p className="text-sm text-[var(--muted)]">{r.desc}</p>
+              <span
+                className="self-start rounded-sm border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--muted)]"
+                title="敬请期待"
+              >
+                敬请期待
+              </span>
             </div>
           ))}
         </div>
