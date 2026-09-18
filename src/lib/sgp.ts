@@ -18,7 +18,23 @@ import {
 // duration of one sync request; it is never logged, stored, or persisted.
 
 const UA = "LeagueOfLegendsClient/14.22.632.3512 (rcp-be-lol-match-history)";
-const RANKED_QUEUES: Record<number, string> = { 420: "单双排", 440: "灵活组排" };
+// 只保留这 5 种模式；其余（大乱斗排位、克隆大乱斗、云顶之弈等）一律跳过。
+// 420/440 是官方 queueId，来自 Riot 的 queues.json，非常确定。
+// 450 = 大乱斗（Howling Abyss ARAM）。
+// 2400 = 海克斯大乱斗（英文名 "ARAM: Mayhem"，2025 年上线的 ARAM 变体，与
+//   Riot queues.json 中 2400 的描述吻合）。
+// "匹配" 这个标签同时映射 400（老版 5v5 征召/Draft Pick）和 490
+//   （Quickplay/新版"快速匹配"，2025 年起逐步替换 400）——国服客户端当前
+//   到底用的是哪一个没能从公开资料 100% 确认，两个都收，实际同步后看
+//   数据库里存的 queue_id 就能定论，多收的那个分支自然用不上。
+const GAME_QUEUES: Record<number, string> = {
+  420: "单双排",
+  440: "灵活组排",
+  450: "大乱斗",
+  2400: "海克斯大乱斗",
+  400: "匹配",
+  490: "匹配",
+};
 const PAGE = 20;
 const MAX_SCAN_DEFAULT = 400;
 const WANT_DEFAULT = 60;
@@ -115,7 +131,7 @@ export async function fetchPlayerRosterGames(
       const queueId = Number(pick(g, "queueId"));
       const createdMs = num(pick(g, "gameCreation", "gameCreationDate", "gameStartTimestamp"));
       if (createdMs >= sinceMs) sawAnyRecentEnough = true;
-      if (!RANKED_QUEUES[queueId]) continue;
+      if (!GAME_QUEUES[queueId]) continue;
       if (createdMs < sinceMs) continue;
       const participants = (g.participants as Json[]) ?? [];
       if (teamRosterCount(g, participants) < minTeamMembers) continue;
@@ -220,7 +236,7 @@ export function buildGameRecord(g: Json): GameRecord {
     gameCreationMs: num(pick(g, "gameCreation", "gameCreationDate", "gameStartTimestamp")),
     durationMin,
     queueId,
-    queueName: RANKED_QUEUES[queueId] ?? "",
+    queueName: GAME_QUEUES[queueId] ?? "",
     gameMode: String(pick(g, "gameMode") ?? ""),
     rosterCount: teamRosterCount(g, participants),
     players,
