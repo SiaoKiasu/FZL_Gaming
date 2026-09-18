@@ -49,11 +49,6 @@ export default function MatchSyncForm() {
       <p className="font-display text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
         同步战绩
       </p>
-      <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
-        在装有客户端的电脑上跑一遍 <code className="text-[var(--foreground)]">Get-SGP-Token.bat</code>
-        （或 <code className="text-[var(--foreground)]">get_sgp_token.ps1</code>），把拿到的 token
-        粘到下面，10 分钟内点同步。只抓 2026-09-16 起、车队至少 3 人同队的排位局，token 用完即弃、不会被保存。
-      </p>
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3 sm:flex-row">
         <input
           type="password"

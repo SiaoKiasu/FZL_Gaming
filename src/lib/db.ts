@@ -39,70 +39,95 @@ export async function insertGames(games: GameRecord[]): Promise<void> {
   }
 }
 
+export type StoredPlayer = {
+  member: string;
+  playerName: string;
+  teamId: number;
+  position: string;
+  champion: string;
+  win: boolean;
+  score: number | null;
+  award: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  kda: number | null;
+  gold: number;
+  damageToChampions: number;
+  damageTaken: number;
+  heal: number;
+  cs: number;
+  visionScore: number;
+  champLevel: number;
+  items: string;
+};
+
 export type StoredMatch = {
   gameId: string;
   gameCreationMs: number;
   durationMin: number;
   queueName: string;
   rosterCount: number;
-  players: {
-    member: string;
-    playerName: string;
-    teamId: number;
-    position: string;
-    champion: string;
-    win: boolean;
-    score: number | null;
-    award: string;
-    kills: number;
-    deaths: number;
-    assists: number;
-    kda: number | null;
-    cs: number;
-    visionScore: number;
-    items: string;
-  }[];
+  players: StoredPlayer[];
 };
 
-export async function listMatches(limit = 100): Promise<StoredMatch[]> {
-  // One round trip: join match_players onto the most recent `limit` matches.
-  // (Avoids passing an array param — @vercel/postgres's `sql` tag only
-  // accepts primitive values.)
-  const { rows } = await sql<{
-    game_id: string;
-    game_creation_ms: number;
-    duration_min: number;
-    queue_name: string;
-    roster_count: number;
-    member: string;
-    player_name: string;
-    team_id: number;
-    position: string;
-    champion: string;
-    win: boolean;
-    score: number | null;
-    award: string;
-    kills: number;
-    deaths: number;
-    assists: number;
-    kda: number | null;
-    cs: number;
-    vision_score: number;
-    items: string;
-  }>`
-    SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count,
-           mp.member, mp.player_name, mp.team_id, mp.position, mp.champion, mp.win,
-           mp.score, mp.award, mp.kills, mp.deaths, mp.assists, mp.kda, mp.cs, mp.vision_score, mp.items
-    FROM (
-      SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count
-      FROM matches
-      ORDER BY game_creation_ms DESC
-      LIMIT ${limit}
-    ) m
-    JOIN match_players mp ON mp.game_id = m.game_id
-    ORDER BY m.game_creation_ms DESC, mp.team_id ASC
-  `;
+type PlayerRow = {
+  member: string;
+  player_name: string;
+  team_id: number;
+  position: string;
+  champion: string;
+  win: boolean;
+  score: number | null;
+  award: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  kda: number | null;
+  gold: number;
+  damage_to_champions: number;
+  damage_taken: number;
+  heal: number;
+  cs: number;
+  vision_score: number;
+  champ_level: number;
+  items: string;
+};
 
+type MatchRow = {
+  game_id: string;
+  game_creation_ms: number;
+  duration_min: number;
+  queue_name: string;
+  roster_count: number;
+} & PlayerRow;
+
+function toPlayer(r: PlayerRow): StoredPlayer {
+  return {
+    member: r.member,
+    playerName: r.player_name,
+    teamId: r.team_id,
+    position: r.position,
+    champion: r.champion,
+    win: r.win,
+    score: r.score === null ? null : Number(r.score),
+    award: r.award,
+    kills: r.kills,
+    deaths: r.deaths,
+    assists: r.assists,
+    kda: r.kda === null ? null : Number(r.kda),
+    gold: Number(r.gold),
+    damageToChampions: Number(r.damage_to_champions),
+    damageTaken: Number(r.damage_taken),
+    heal: Number(r.heal),
+    cs: r.cs,
+    visionScore: r.vision_score,
+    champLevel: r.champ_level,
+    items: r.items,
+  };
+}
+
+function groupMatches(rows: MatchRow[]): StoredMatch[] {
   const byGame = new Map<string, StoredMatch>();
   const order: string[] = [];
   for (const r of rows) {
@@ -117,23 +142,45 @@ export async function listMatches(limit = 100): Promise<StoredMatch[]> {
       });
       order.push(r.game_id);
     }
-    byGame.get(r.game_id)!.players.push({
-      member: r.member,
-      playerName: r.player_name,
-      teamId: r.team_id,
-      position: r.position,
-      champion: r.champion,
-      win: r.win,
-      score: r.score === null ? null : Number(r.score),
-      award: r.award,
-      kills: r.kills,
-      deaths: r.deaths,
-      assists: r.assists,
-      kda: r.kda === null ? null : Number(r.kda),
-      cs: r.cs,
-      visionScore: r.vision_score,
-      items: r.items,
-    });
+    byGame.get(r.game_id)!.players.push(toPlayer(r));
   }
   return order.map((id) => byGame.get(id)!);
+}
+
+export async function listMatches(limit = 100): Promise<StoredMatch[]> {
+  // One round trip: join match_players onto the most recent `limit` matches.
+  // (Avoids passing an array param — @vercel/postgres's `sql` tag only
+  // accepts primitive values.)
+  const { rows } = await sql<MatchRow>`
+    SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count,
+           mp.member, mp.player_name, mp.team_id, mp.position, mp.champion, mp.win,
+           mp.score, mp.award, mp.kills, mp.deaths, mp.assists, mp.kda, mp.gold,
+           mp.damage_to_champions, mp.damage_taken, mp.heal, mp.cs, mp.vision_score,
+           mp.champ_level, mp.items
+    FROM (
+      SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count
+      FROM matches
+      ORDER BY game_creation_ms DESC
+      LIMIT ${limit}
+    ) m
+    JOIN match_players mp ON mp.game_id = m.game_id
+    ORDER BY m.game_creation_ms DESC, mp.team_id ASC
+  `;
+  return groupMatches(rows);
+}
+
+export async function getMatch(gameId: string): Promise<StoredMatch | null> {
+  const { rows } = await sql<MatchRow>`
+    SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count,
+           mp.member, mp.player_name, mp.team_id, mp.position, mp.champion, mp.win,
+           mp.score, mp.award, mp.kills, mp.deaths, mp.assists, mp.kda, mp.gold,
+           mp.damage_to_champions, mp.damage_taken, mp.heal, mp.cs, mp.vision_score,
+           mp.champ_level, mp.items
+    FROM matches m
+    JOIN match_players mp ON mp.game_id = m.game_id
+    WHERE m.game_id = ${gameId}
+    ORDER BY mp.team_id ASC
+  `;
+  const matches = groupMatches(rows);
+  return matches[0] ?? null;
 }
