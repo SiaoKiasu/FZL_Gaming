@@ -4,13 +4,16 @@ import {
   memberDues,
   memberIdMap,
   settlement,
-  ledger,
-  currentBalance,
+  ledger as staticLedger,
+  currentBalance as staticBalance,
 } from "@/lib/fund";
 import { getLiveMemberStats, type LiveMemberStat } from "@/lib/fundStats";
+import { getLedgerEntries, getLedgerPasswordHash, isDbConfigured, type LedgerEntry } from "@/lib/db";
+import { beijingDateString } from "@/lib/schedule";
 import ShareBar from "@/components/ShareBar";
 import StatTile from "@/components/StatTile";
 import Pill from "@/components/Pill";
+import LedgerForm from "@/components/LedgerForm";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +49,21 @@ const EMPTY_STATS: LiveMemberStat[] = memberIdMap.map((m) => ({
 }));
 
 export default async function FundPage() {
-  const liveStats = await getLiveMemberStats();
+  const dbReady = isDbConfigured();
+  const [liveStats, ledgerEntries, ledgerPasswordHash] = await Promise.all([
+    getLiveMemberStats(),
+    dbReady ? getLedgerEntries() : Promise.resolve<LedgerEntry[]>([]),
+    dbReady ? getLedgerPasswordHash() : Promise.resolve<string | null>(null),
+  ]);
   const memberStats = liveStats ?? EMPTY_STATS;
   const paidCount = memberDues.filter((m) => m.status === "已缴").length;
   const totalDues = memberDues.reduce((sum, m) => sum + m.amount, 0);
   const hasMatchData = memberStats.some((s) => s.rankedGames > 0 || s.teamGames > 0);
+  // Once the DB has been migrated (db/schema_ledger.sql seeds the one old
+  // static row into it), live entries take over; the static fallback only
+  // matters for local dev with no POSTGRES_URL.
+  const ledger = dbReady && ledgerEntries.length ? ledgerEntries : staticLedger;
+  const currentBalance = dbReady && ledgerEntries.length ? ledgerEntries[ledgerEntries.length - 1].balance : staticBalance;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-16">
@@ -388,6 +401,13 @@ export default async function FundPage() {
             当前余额 ¥{currentBalance}
           </span>
         </div>
+
+        {dbReady ? (
+          <div className="mb-6">
+            <LedgerForm passwordSet={Boolean(ledgerPasswordHash)} initialDate={beijingDateString()} />
+          </div>
+        ) : null}
+
         <div className="overflow-x-auto rounded-sm border border-[var(--border)]">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-[var(--bg-panel)] text-xs uppercase tracking-wider text-[var(--muted)]">

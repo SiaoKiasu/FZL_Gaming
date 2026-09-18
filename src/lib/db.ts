@@ -295,3 +295,94 @@ export async function getMatch(gameId: string): Promise<StoredMatch | null> {
   const matches = groupMatches(rows);
   return matches[0] ?? null;
 }
+
+// ---- 峡谷基金收支流水 -----------------------------------------------
+// entries live in the DB now (see db/schema_ledger.sql) instead of the
+// static array in src/lib/fund.ts -- balance is a running SUM() computed
+// at read time so entries never need to be re-numbered when one is added.
+
+export type LedgerEntry = {
+  id: number;
+  date: string;
+  type: string;
+  item: string;
+  income: number | null;
+  expense: number | null;
+  balance: number;
+  handler: string;
+};
+
+type LedgerRow = {
+  id: number;
+  entry_date: string;
+  type: string;
+  item: string;
+  income: string | null;
+  expense: string | null;
+  handler: string;
+  balance: string;
+};
+
+export async function getLedgerEntries(): Promise<LedgerEntry[]> {
+  const { rows } = await sql<LedgerRow>`
+    SELECT id, entry_date, type, item, income, expense, handler,
+           SUM(COALESCE(income, 0) - COALESCE(expense, 0)) OVER (ORDER BY entry_date, id) AS balance
+    FROM ledger_entries
+    ORDER BY entry_date ASC, id ASC
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    date: r.entry_date,
+    type: r.type,
+    item: r.item,
+    income: r.income === null ? null : Number(r.income),
+    expense: r.expense === null ? null : Number(r.expense),
+    balance: Number(r.balance),
+    handler: r.handler,
+  }));
+}
+
+export type LedgerEntryInput = {
+  date: string;
+  type: string;
+  item: string;
+  income: number | null;
+  expense: number | null;
+  handler: string;
+};
+
+export async function insertLedgerEntry(entry: LedgerEntryInput): Promise<void> {
+  await sql`
+    INSERT INTO ledger_entries (entry_date, type, item, income, expense, handler)
+    VALUES (${entry.date}, ${entry.type}, ${entry.item}, ${entry.income}, ${entry.expense}, ${entry.handler})
+  `;
+}
+
+const LEDGER_PASSWORD_KEY = "ledger_password_hash";
+
+export async function getLedgerPasswordHash(): Promise<string | null> {
+  const { rows } = await sql<{ value: string }>`
+    SELECT value FROM app_settings WHERE key = ${LEDGER_PASSWORD_KEY}
+  `;
+  return rows[0]?.value ?? null;
+}
+
+// One-time claim: only succeeds while no password has been set yet, so
+// this can only ever be used once (by whoever opens the setup form
+// first -- meant to be 喑糖浆, before anyone else gets to it). Returns
+// false if a password was already set (setup already claimed).
+export async function setLedgerPasswordIfAbsent(hash: string): Promise<boolean> {
+  const { rowCount } = await sql`
+    INSERT INTO app_settings (key, value) VALUES (${LEDGER_PASSWORD_KEY}, ${hash})
+    ON CONFLICT (key) DO NOTHING
+  `;
+  return (rowCount ?? 0) > 0;
+}
+
+export async function updateLedgerPassword(hash: string): Promise<void> {
+  await sql`
+    INSERT INTO app_settings (key, value) VALUES (${LEDGER_PASSWORD_KEY}, ${hash})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `;
+}
+
