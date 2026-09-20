@@ -182,6 +182,17 @@ export type PlayerRow = {
   wardsKilled: number;
   champLevel: number;
   items: string;
+  // Verified against a real saved match (LOL/lol_ranked_sync/raw/games/*.json):
+  // damageSelfMitigated, killingSprees, largestKillingSpree, objectivesStolen,
+  // totalHealsOnTeammates, goldSpent, totalTimeSpentDead are all top-level
+  // participant fields, same nesting level as kills/deaths/assists.
+  damageSelfMitigated: number;
+  killingSprees: number;
+  largestKillingSpree: number;
+  objectivesStolen: number;
+  healsOnTeammates: number;
+  goldSpent: number;
+  timeSpentDead: number;
 };
 
 export type TeamStats = {
@@ -194,6 +205,18 @@ export type TeamStats = {
   atakhan: number;
   horde: number;
   firstBlood: boolean;
+  // Per-objective "first to take it" flags, straight off the same
+  // teams[].objectives.<key>.first field firstBlood already reads (that
+  // one comes from objectives.champion.first). Absent/undefined on
+  // matches synced before this field was added -- treat that as "unknown",
+  // never as false, at the call site.
+  firstTower: boolean;
+  firstDragon: boolean;
+  firstBaron: boolean;
+  firstInhibitor: boolean;
+  firstRiftHerald: boolean;
+  firstAtakhan: boolean;
+  firstHorde: boolean;
 };
 
 export type GameRecord = {
@@ -233,6 +256,7 @@ function buildTeamStats(g: Json): Record<string, TeamStats> | null {
       .filter((id) => Number.isFinite(id) && id > 0);
     const objectives = (t.objectives as Json) ?? {};
     const killsOf = (key: string) => num(((objectives[key] as Json) ?? {}).kills);
+    const firstOf = (key: string) => Boolean(((objectives[key] as Json) ?? {}).first);
     out[teamId] = {
       bans,
       dragon: killsOf("dragon"),
@@ -242,7 +266,14 @@ function buildTeamStats(g: Json): Record<string, TeamStats> | null {
       riftHerald: killsOf("riftHerald"),
       atakhan: killsOf("atakhan"),
       horde: killsOf("horde"),
-      firstBlood: Boolean(((objectives.champion as Json) ?? {}).first),
+      firstBlood: firstOf("champion"),
+      firstTower: firstOf("tower"),
+      firstDragon: firstOf("dragon"),
+      firstBaron: firstOf("baron"),
+      firstInhibitor: firstOf("inhibitor"),
+      firstRiftHerald: firstOf("riftHerald"),
+      firstAtakhan: firstOf("atakhan"),
+      firstHorde: firstOf("horde"),
     };
   }
   return Object.keys(out).length ? out : null;
@@ -285,8 +316,16 @@ export function buildGameRecord(g: Json): GameRecord {
       position: String(pick(p, "teamPosition", "individualPosition", "lane") ?? ""),
       champion: champNameMap[champId] ?? champId,
       championId: Number(champId) || 0,
-      spell1Id: num(pick(p, "summoner1Id")),
-      spell2Id: num(pick(p, "summoner2Id")),
+      // BUG FIX (verified against real raw JSON, 5 saved matches checked):
+      // this data source names these fields spell1Id/spell2Id, NOT
+      // summoner1Id/summoner2Id (that's the official Match-V5 name, but
+      // this SGP-derived response never has it) -- reading only
+      // summoner1Id/summoner2Id meant spell1Id/spell2Id were always 0,
+      // which is why summoner spell icons never rendered. summoner1Id/
+      // summoner2Id are kept as a fallback in case a future response
+      // shape uses that name instead.
+      spell1Id: num(pick(p, "spell1Id", "summoner1Id")),
+      spell2Id: num(pick(p, "spell2Id", "summoner2Id")),
       win: Boolean(p.win),
       score: rating.score,
       award: rating.award,
@@ -311,6 +350,13 @@ export function buildGameRecord(g: Json): GameRecord {
       wardsKilled: num(p.wardsKilled),
       champLevel: num(p.champLevel),
       items,
+      damageSelfMitigated: num(p.damageSelfMitigated),
+      killingSprees: num(p.killingSprees),
+      largestKillingSpree: num(p.largestKillingSpree),
+      objectivesStolen: num(p.objectivesStolen),
+      healsOnTeammates: num(p.totalHealsOnTeammates),
+      goldSpent: num(p.goldSpent),
+      timeSpentDead: num(p.totalTimeSpentDead),
     };
   });
 

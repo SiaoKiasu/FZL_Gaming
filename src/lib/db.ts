@@ -48,13 +48,15 @@ export async function insertGames(games: GameRecord[]): Promise<void> {
           spell1_id, spell2_id, win, score, award, kills, deaths, assists, kda, multi_kill,
           first_blood, gold, damage_to_champions, physical_damage, magic_damage, true_damage,
           damage_taken, heal, turret_damage, cc_time, cs, vision_score, wards_placed,
-          wards_killed, champ_level, items
+          wards_killed, champ_level, items, damage_self_mitigated, killing_sprees,
+          largest_killing_spree, objectives_stolen, heals_on_teammates, gold_spent, time_spent_dead
         ) VALUES (
           ${g.gameId}, ${p.puuid}, ${p.member}, ${p.playerName}, ${p.teamId}, ${p.position}, ${p.champion}, ${p.championId},
           ${p.spell1Id}, ${p.spell2Id}, ${p.win}, ${p.score}, ${p.award}, ${p.kills}, ${p.deaths}, ${p.assists}, ${p.kda}, ${p.multiKill},
           ${p.firstBlood}, ${p.gold}, ${p.damageToChampions}, ${p.physicalDamage}, ${p.magicDamage}, ${p.trueDamage},
           ${p.damageTaken}, ${p.heal}, ${p.turretDamage}, ${p.ccTime}, ${p.cs}, ${p.visionScore}, ${p.wardsPlaced},
-          ${p.wardsKilled}, ${p.champLevel}, ${p.items}
+          ${p.wardsKilled}, ${p.champLevel}, ${p.items}, ${p.damageSelfMitigated}, ${p.killingSprees},
+          ${p.largestKillingSpree}, ${p.objectivesStolen}, ${p.healsOnTeammates}, ${p.goldSpent}, ${p.timeSpentDead}
         )
         ON CONFLICT (game_id, puuid) DO UPDATE SET
           member = EXCLUDED.member,
@@ -88,7 +90,14 @@ export async function insertGames(games: GameRecord[]): Promise<void> {
           wards_placed = EXCLUDED.wards_placed,
           wards_killed = EXCLUDED.wards_killed,
           champ_level = EXCLUDED.champ_level,
-          items = EXCLUDED.items
+          items = EXCLUDED.items,
+          damage_self_mitigated = EXCLUDED.damage_self_mitigated,
+          killing_sprees = EXCLUDED.killing_sprees,
+          largest_killing_spree = EXCLUDED.largest_killing_spree,
+          objectives_stolen = EXCLUDED.objectives_stolen,
+          heals_on_teammates = EXCLUDED.heals_on_teammates,
+          gold_spent = EXCLUDED.gold_spent,
+          time_spent_dead = EXCLUDED.time_spent_dead
       `;
     }
   }
@@ -127,6 +136,13 @@ export type StoredPlayer = {
   wardsKilled: number;
   champLevel: number;
   items: string;
+  damageSelfMitigated: number;
+  killingSprees: number;
+  largestKillingSpree: number;
+  objectivesStolen: number;
+  healsOnTeammates: number;
+  goldSpent: number;
+  timeSpentDead: number;
 };
 
 export type StoredMatch = {
@@ -174,6 +190,13 @@ type PlayerRow = {
   wards_killed: number | null;
   champ_level: number;
   items: string;
+  damage_self_mitigated: number | null;
+  killing_sprees: number | null;
+  largest_killing_spree: number | null;
+  objectives_stolen: number | null;
+  heals_on_teammates: number | null;
+  gold_spent: number | null;
+  time_spent_dead: number | null;
 };
 
 type MatchRow = {
@@ -222,6 +245,13 @@ function toPlayer(r: PlayerRow): StoredPlayer {
     wardsKilled: Number(r.wards_killed ?? 0),
     champLevel: r.champ_level,
     items: r.items,
+    damageSelfMitigated: Number(r.damage_self_mitigated ?? 0),
+    killingSprees: Number(r.killing_sprees ?? 0),
+    largestKillingSpree: Number(r.largest_killing_spree ?? 0),
+    objectivesStolen: Number(r.objectives_stolen ?? 0),
+    healsOnTeammates: Number(r.heals_on_teammates ?? 0),
+    goldSpent: Number(r.gold_spent ?? 0),
+    timeSpentDead: Number(r.time_spent_dead ?? 0),
   };
 }
 
@@ -266,7 +296,9 @@ export async function listMatches(limit = 100): Promise<StoredMatch[]> {
            mp.spell1_id, mp.spell2_id, mp.win, mp.score, mp.award, mp.kills, mp.deaths, mp.assists,
            mp.kda, mp.multi_kill, mp.first_blood, mp.gold, mp.damage_to_champions, mp.physical_damage,
            mp.magic_damage, mp.true_damage, mp.damage_taken, mp.heal, mp.turret_damage, mp.cc_time,
-           mp.cs, mp.vision_score, mp.wards_placed, mp.wards_killed, mp.champ_level, mp.items
+           mp.cs, mp.vision_score, mp.wards_placed, mp.wards_killed, mp.champ_level, mp.items,
+           mp.damage_self_mitigated, mp.killing_sprees, mp.largest_killing_spree, mp.objectives_stolen,
+           mp.heals_on_teammates, mp.gold_spent, mp.time_spent_dead
     FROM (
       SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count, team_stats
       FROM matches
@@ -286,7 +318,9 @@ export async function getMatch(gameId: string): Promise<StoredMatch | null> {
            mp.spell1_id, mp.spell2_id, mp.win, mp.score, mp.award, mp.kills, mp.deaths, mp.assists,
            mp.kda, mp.multi_kill, mp.first_blood, mp.gold, mp.damage_to_champions, mp.physical_damage,
            mp.magic_damage, mp.true_damage, mp.damage_taken, mp.heal, mp.turret_damage, mp.cc_time,
-           mp.cs, mp.vision_score, mp.wards_placed, mp.wards_killed, mp.champ_level, mp.items
+           mp.cs, mp.vision_score, mp.wards_placed, mp.wards_killed, mp.champ_level, mp.items,
+           mp.damage_self_mitigated, mp.killing_sprees, mp.largest_killing_spree, mp.objectives_stolen,
+           mp.heals_on_teammates, mp.gold_spent, mp.time_spent_dead
     FROM matches m
     JOIN match_players mp ON mp.game_id = m.game_id
     WHERE m.game_id = ${gameId}
