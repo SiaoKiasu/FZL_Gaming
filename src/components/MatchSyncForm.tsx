@@ -6,6 +6,7 @@ import { useState } from "react";
 type SyncResult = {
   scannedGames: number;
   newGames: number;
+  repairedGames: number;
   totalGames: number;
   refreshedGames: number;
   perPlayer: { name: string; scanned: number; found: number }[];
@@ -88,6 +89,7 @@ export default function MatchSyncForm() {
           <p className="text-[var(--status-good)]">
             新增 {result.newGames} 场车队排位（累计 {result.totalGames} 场）
             {result.refreshedGames > 0 ? ` · 已刷新 ${result.refreshedGames} 场旧对局` : ""}
+            {result.repairedGames > 0 ? ` · 自动补全了 ${result.repairedGames} 场之前数据不完整的旧对局` : ""}
           </p>
           <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[var(--muted)] sm:grid-cols-4">
             {result.perPlayer.map((p) => (

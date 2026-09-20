@@ -21,6 +21,26 @@ export async function getKnownGameIds(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.game_id));
 }
 
+// Every queue this app syncs (see GAME_QUEUES in sgp.ts) is a standard 5v5
+// mode -- 10 participants, always. A match already in `matches` but with
+// fewer than 10 rows in match_players is the corrupted state a mid-sync
+// timeout used to be able to leave behind (see insertGames's comment):
+// this finds those so the sync route can quietly re-fetch and repair them
+// on the next normal (non-refreshAll) auto-sync run, with no manual
+// "刷新旧对局" click needed.
+const EXPECTED_PLAYERS_PER_GAME = 10;
+
+export async function getIncompleteGameIds(): Promise<Set<string>> {
+  const { rows } = await sql<{ game_id: string }>`
+    SELECT m.game_id
+    FROM matches m
+    LEFT JOIN match_players mp ON mp.game_id = m.game_id
+    GROUP BY m.game_id
+    HAVING COUNT(mp.puuid) < ${EXPECTED_PLAYERS_PER_GAME}
+  `;
+  return new Set(rows.map((r) => r.game_id));
+}
+
 // One player row's column list, in the exact order both the multi-row
 // INSERT and its ON CONFLICT UPDATE below rely on.
 const MATCH_PLAYER_COLUMNS = [

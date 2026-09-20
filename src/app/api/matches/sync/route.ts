@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isDbConfigured, getKnownGameIds, insertGames } from "@/lib/db";
+import { isDbConfigured, getKnownGameIds, getIncompleteGameIds, insertGames } from "@/lib/db";
 import { SgpAuthError, syncAllRosterGames } from "@/lib/sgp";
 
 export const dynamic = "force-dynamic";
@@ -11,13 +11,19 @@ export const maxDuration = 60;
 // roster members on a side) from SYNC_SINCE_MS onward, and stores any not
 // already in the DB.
 //
-// Normal syncs only write the genuinely new games -- insertGames's upsert
-// makes re-writing an existing game harmless, but doing that for every
-// already-known game on every sync would mean dozens of extra round trips
-// to Postgres each time, risking this route's 60s timeout for no benefit
-// on a day-to-day sync. refreshAll opts into that slower full rewrite,
-// for the one-off case where a schema/rating change adds fields that
-// already-synced games are missing and need backfilling.
+// Normal syncs only write the genuinely new games, PLUS any already-known
+// game that's missing player rows (getIncompleteGameIds -- a leftover from
+// the old per-player-insert bug where a mid-sync timeout could permanently
+// half-write a game; harmless now that insertGames is transactional, but
+// existing corrupted rows still need one real re-fetch to backfill). This
+// makes those self-heal on the very next auto-sync run with no manual
+// action needed. insertGames's upsert makes re-writing an existing game
+// harmless either way, but doing that for every already-known game on
+// every sync would mean dozens of extra round trips to Postgres each time,
+// risking this route's 60s timeout for no benefit on a day-to-day sync --
+// so a fully-stored known game is still skipped. refreshAll opts into that
+// slower full rewrite of everything, for the one-off case where a
+// schema/rating change adds fields that already-synced games are missing.
 //
 // The token is a ~10-minute-lived bearer credential for the pasting user's
 // own LoL account (see lol_ranked_sync/README.md). It is used in-memory for
@@ -46,15 +52,17 @@ export async function POST(req: NextRequest) {
 
   try {
     const { games, perPlayer } = await syncAllRosterGames(token);
-    const known = await getKnownGameIds();
+    const [known, incomplete] = await Promise.all([getKnownGameIds(), getIncompleteGameIds()]);
     const newGames = games.filter((g) => !known.has(g.gameId));
-    const toStore = refreshAll ? games : newGames;
+    const repairedGames = games.filter((g) => known.has(g.gameId) && incomplete.has(g.gameId));
+    const toStore = refreshAll ? games : [...newGames, ...repairedGames];
     if (toStore.length) {
       await insertGames(toStore);
     }
     return NextResponse.json({
       scannedGames: games.length,
       newGames: newGames.length,
+      repairedGames: refreshAll ? 0 : repairedGames.length,
       totalGames: known.size + newGames.length,
       refreshedGames: refreshAll ? games.length : 0,
       perPlayer,
