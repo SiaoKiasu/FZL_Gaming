@@ -7,7 +7,7 @@ import {
   ledger as staticLedger,
   currentBalance as staticBalance,
 } from "@/lib/fund";
-import { getLiveMemberStats, type LiveMemberStat } from "@/lib/fundStats";
+import { getLiveMemberStats, type LiveMemberStat, CANYON_PEAK_MIN_GAMES } from "@/lib/fundStats";
 import { getLedgerEntries, getLedgerPasswordHash, isDbConfigured, type LedgerEntry } from "@/lib/db";
 import { beijingDateString } from "@/lib/schedule";
 import ShareBar from "@/components/ShareBar";
@@ -270,8 +270,9 @@ export default async function FundPage() {
               <span
                 className="rounded-sm px-2 py-0.5 text-xs font-bold"
                 style={{ color: seriesColors[0], backgroundColor: `color-mix(in srgb, ${seriesColors[0]} 15%, transparent)` }}
+                title="该项奖金占奖金池的固定比例，与下方任何人的数据无关"
               >
-                35%
+                奖池 35%
               </span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">
@@ -298,9 +299,14 @@ export default async function FundPage() {
                         s.nickname === leaderId ? "bg-[var(--gold)]/10" : ""
                       }`}
                     >
-                      <span className={`font-medium ${s.nickname === leaderId ? "text-[var(--gold)]" : "text-[var(--foreground)]"}`}>
+                      <span className={`flex items-center gap-1.5 font-medium ${s.nickname === leaderId ? "text-[var(--gold)]" : "text-[var(--foreground)]"}`}>
                         {s.nickname}
                         {s.nickname === leaderId ? " 👑" : ""}
+                        {!s.qualified && s.rankedGames > 0 ? (
+                          <span className="rounded-sm border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-normal text-[var(--muted)]">
+                            未达标 · 差{Math.max(CANYON_PEAK_MIN_GAMES - s.rankedGames, 0)}局
+                          </span>
+                        ) : null}
                       </span>
                       <span className="tabular-nums text-[var(--muted)]">
                         {s.rankedGames} 局 · MVP {s.mvp} · SVP {s.svp} · {(s.mvpRate * 100).toFixed(0)}%
@@ -322,8 +328,9 @@ export default async function FundPage() {
               <span
                 className="rounded-sm px-2 py-0.5 text-xs font-bold"
                 style={{ color: seriesColors[1], backgroundColor: `color-mix(in srgb, ${seriesColors[1]} 15%, transparent)` }}
+                title="该项奖金占奖金池的固定比例"
               >
-                30%
+                奖池 30%
               </span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">
@@ -353,8 +360,9 @@ export default async function FundPage() {
               <span
                 className="rounded-sm px-2 py-0.5 text-xs font-bold"
                 style={{ color: seriesColors[2], backgroundColor: `color-mix(in srgb, ${seriesColors[2]} 15%, transparent)` }}
+                title="该项奖金占奖金池的固定比例"
               >
-                15%
+                奖池 15%
               </span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">

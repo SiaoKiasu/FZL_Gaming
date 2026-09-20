@@ -1,6 +1,7 @@
 import "server-only";
 
-import { sql } from "@vercel/postgres";
+import { sql, db } from "@vercel/postgres";
+import type { VercelPoolClient } from "@vercel/postgres";
 import type { GameRecord, TeamStats } from "@/lib/sgp";
 
 export type { TeamStats };
@@ -20,86 +21,110 @@ export async function getKnownGameIds(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.game_id));
 }
 
+// One player row's column list, in the exact order both the multi-row
+// INSERT and its ON CONFLICT UPDATE below rely on.
+const MATCH_PLAYER_COLUMNS = [
+  "game_id", "puuid", "member", "player_name", "team_id", "position", "champion", "champion_id",
+  "spell1_id", "spell2_id", "win", "score", "award", "kills", "deaths", "assists", "kda", "multi_kill",
+  "first_blood", "gold", "damage_to_champions", "physical_damage", "magic_damage", "true_damage",
+  "damage_taken", "heal", "turret_damage", "cc_time", "cs", "vision_score", "wards_placed",
+  "wards_killed", "champ_level", "items", "damage_self_mitigated", "killing_sprees",
+  "largest_killing_spree", "objectives_stolen", "heals_on_teammates", "gold_spent", "time_spent_dead",
+] as const;
+
+function playerRowValues(gameId: string, p: GameRecord["players"][number]): unknown[] {
+  return [
+    gameId, p.puuid, p.member, p.playerName, p.teamId, p.position, p.champion, p.championId,
+    p.spell1Id, p.spell2Id, p.win, p.score, p.award, p.kills, p.deaths, p.assists, p.kda, p.multiKill,
+    p.firstBlood, p.gold, p.damageToChampions, p.physicalDamage, p.magicDamage, p.trueDamage,
+    p.damageTaken, p.heal, p.turretDamage, p.ccTime, p.cs, p.visionScore, p.wardsPlaced,
+    p.wardsKilled, p.champLevel, p.items, p.damageSelfMitigated, p.killingSprees,
+    p.largestKillingSpree, p.objectivesStolen, p.healsOnTeammates, p.goldSpent, p.timeSpentDead,
+  ];
+}
+
+// One multi-row INSERT for every player in a game, instead of one round
+// trip per player. This is not just a speed-up -- it's the fix for a real
+// data-corruption bug: with the old one-`await sql` per-player loop, if
+// Vercel killed this route mid-request (maxDuration = 60s, and a big
+// backlog sync can have 8 roster members x dozens of games x 10 players
+// each to write), whichever game was mid-loop at that exact moment ended
+// up with only SOME of its 10 players ever written -- e.g. only 1 of 5
+// opponents stored, permanently, because that game's id was already in
+// `matches` so later incremental syncs treat it as "already known" and
+// never touch it again. Confirmed against the live site: a match whose
+// page showed only 1 red-side player also summed its team totals (总击杀
+// etc, computed server-side from all stored rows) to exactly that one
+// player's own numbers -- proof the other 4 rows were never in the
+// database at all, not just hidden by a display bug.
+async function insertGamePlayers(
+  client: VercelPoolClient,
+  gameId: string,
+  players: GameRecord["players"]
+): Promise<void> {
+  if (!players.length) return;
+  const cols = MATCH_PLAYER_COLUMNS;
+  const valuesSql: string[] = [];
+  const params: unknown[] = [];
+  players.forEach((p, i) => {
+    const rowValues = playerRowValues(gameId, p);
+    const placeholders = rowValues.map((_, j) => `$${i * cols.length + j + 1}`);
+    valuesSql.push(`(${placeholders.join(", ")})`);
+    params.push(...rowValues);
+  });
+  const updateSet = cols
+    .slice(2) // skip game_id/puuid -- those are the conflict key, never updated
+    .map((c) => `${c} = EXCLUDED.${c}`)
+    .join(", ");
+  await client.query(
+    `INSERT INTO match_players (${cols.join(", ")}) VALUES ${valuesSql.join(", ")}
+     ON CONFLICT (game_id, puuid) DO UPDATE SET ${updateSet}`,
+    params
+  );
+}
+
 // Upserts on every sync (not just insert-if-new) so that a schema/rating
 // change picks up existing games automatically the next time someone syncs
 // -- there's no separate backfill step to remember to run.
+//
+// Each game's matches-row + all-its-players write is one DB transaction
+// (BEGIN...COMMIT on a single checked-out connection) so a game is either
+// fully stored or not stored at all -- never half-written. If the whole
+// request gets killed mid-sync (see insertGamePlayers's comment above),
+// Postgres rolls back whatever game's transaction was still open, and
+// every game committed before that stays fully intact. A single game's
+// insert failing (a genuinely malformed record) is logged and skipped
+// rather than aborting the rest of the batch.
 export async function insertGames(games: GameRecord[]): Promise<void> {
-  for (const g of games) {
-    const teamStatsJson = g.teamStats ? JSON.stringify(g.teamStats) : null;
-    await sql`
-      INSERT INTO matches (
-        game_id, game_creation_ms, duration_min, queue_id, queue_name, game_mode, roster_count, team_stats
-      ) VALUES (
-        ${g.gameId}, ${g.gameCreationMs}, ${g.durationMin}, ${g.queueId}, ${g.queueName}, ${g.gameMode}, ${g.rosterCount}, ${teamStatsJson}
-      )
-      ON CONFLICT (game_id) DO UPDATE SET
-        game_creation_ms = EXCLUDED.game_creation_ms,
-        duration_min = EXCLUDED.duration_min,
-        queue_id = EXCLUDED.queue_id,
-        queue_name = EXCLUDED.queue_name,
-        game_mode = EXCLUDED.game_mode,
-        roster_count = EXCLUDED.roster_count,
-        team_stats = EXCLUDED.team_stats
-    `;
-    for (const p of g.players) {
-      await sql`
-        INSERT INTO match_players (
-          game_id, puuid, member, player_name, team_id, position, champion, champion_id,
-          spell1_id, spell2_id, win, score, award, kills, deaths, assists, kda, multi_kill,
-          first_blood, gold, damage_to_champions, physical_damage, magic_damage, true_damage,
-          damage_taken, heal, turret_damage, cc_time, cs, vision_score, wards_placed,
-          wards_killed, champ_level, items, damage_self_mitigated, killing_sprees,
-          largest_killing_spree, objectives_stolen, heals_on_teammates, gold_spent, time_spent_dead
-        ) VALUES (
-          ${g.gameId}, ${p.puuid}, ${p.member}, ${p.playerName}, ${p.teamId}, ${p.position}, ${p.champion}, ${p.championId},
-          ${p.spell1Id}, ${p.spell2Id}, ${p.win}, ${p.score}, ${p.award}, ${p.kills}, ${p.deaths}, ${p.assists}, ${p.kda}, ${p.multiKill},
-          ${p.firstBlood}, ${p.gold}, ${p.damageToChampions}, ${p.physicalDamage}, ${p.magicDamage}, ${p.trueDamage},
-          ${p.damageTaken}, ${p.heal}, ${p.turretDamage}, ${p.ccTime}, ${p.cs}, ${p.visionScore}, ${p.wardsPlaced},
-          ${p.wardsKilled}, ${p.champLevel}, ${p.items}, ${p.damageSelfMitigated}, ${p.killingSprees},
-          ${p.largestKillingSpree}, ${p.objectivesStolen}, ${p.healsOnTeammates}, ${p.goldSpent}, ${p.timeSpentDead}
-        )
-        ON CONFLICT (game_id, puuid) DO UPDATE SET
-          member = EXCLUDED.member,
-          player_name = EXCLUDED.player_name,
-          team_id = EXCLUDED.team_id,
-          position = EXCLUDED.position,
-          champion = EXCLUDED.champion,
-          champion_id = EXCLUDED.champion_id,
-          spell1_id = EXCLUDED.spell1_id,
-          spell2_id = EXCLUDED.spell2_id,
-          win = EXCLUDED.win,
-          score = EXCLUDED.score,
-          award = EXCLUDED.award,
-          kills = EXCLUDED.kills,
-          deaths = EXCLUDED.deaths,
-          assists = EXCLUDED.assists,
-          kda = EXCLUDED.kda,
-          multi_kill = EXCLUDED.multi_kill,
-          first_blood = EXCLUDED.first_blood,
-          gold = EXCLUDED.gold,
-          damage_to_champions = EXCLUDED.damage_to_champions,
-          physical_damage = EXCLUDED.physical_damage,
-          magic_damage = EXCLUDED.magic_damage,
-          true_damage = EXCLUDED.true_damage,
-          damage_taken = EXCLUDED.damage_taken,
-          heal = EXCLUDED.heal,
-          turret_damage = EXCLUDED.turret_damage,
-          cc_time = EXCLUDED.cc_time,
-          cs = EXCLUDED.cs,
-          vision_score = EXCLUDED.vision_score,
-          wards_placed = EXCLUDED.wards_placed,
-          wards_killed = EXCLUDED.wards_killed,
-          champ_level = EXCLUDED.champ_level,
-          items = EXCLUDED.items,
-          damage_self_mitigated = EXCLUDED.damage_self_mitigated,
-          killing_sprees = EXCLUDED.killing_sprees,
-          largest_killing_spree = EXCLUDED.largest_killing_spree,
-          objectives_stolen = EXCLUDED.objectives_stolen,
-          heals_on_teammates = EXCLUDED.heals_on_teammates,
-          gold_spent = EXCLUDED.gold_spent,
-          time_spent_dead = EXCLUDED.time_spent_dead
-      `;
+  const client = await db.connect();
+  try {
+    for (const g of games) {
+      try {
+        await client.query("BEGIN");
+        const teamStatsJson = g.teamStats ? JSON.stringify(g.teamStats) : null;
+        await client.query(
+          `INSERT INTO matches (
+            game_id, game_creation_ms, duration_min, queue_id, queue_name, game_mode, roster_count, team_stats
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (game_id) DO UPDATE SET
+            game_creation_ms = EXCLUDED.game_creation_ms,
+            duration_min = EXCLUDED.duration_min,
+            queue_id = EXCLUDED.queue_id,
+            queue_name = EXCLUDED.queue_name,
+            game_mode = EXCLUDED.game_mode,
+            roster_count = EXCLUDED.roster_count,
+            team_stats = EXCLUDED.team_stats`,
+          [g.gameId, g.gameCreationMs, g.durationMin, g.queueId, g.queueName, g.gameMode, g.rosterCount, teamStatsJson]
+        );
+        await insertGamePlayers(client, g.gameId, g.players);
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        console.error(`[insertGames] failed to store game ${g.gameId}, skipping`, err);
+      }
     }
+  } finally {
+    client.release();
   }
 }
 
