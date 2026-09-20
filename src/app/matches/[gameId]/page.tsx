@@ -84,10 +84,11 @@ function StatBar({ value, max, digits = 0, suffix = "" }: { value: number; max: 
   );
 }
 
-function StatCell({ label, children }: { label: string; children: React.ReactNode }) {
+function StatCell({ label, icon, children }: { label: string; icon?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-sm border border-[var(--border)]/60 bg-white/[0.02]">
-      <p className="border-b border-[var(--border)]/40 px-2 pt-1 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+    <div className="rounded-sm border border-[var(--border)]/60 bg-white/[0.02] transition-colors hover:border-[var(--border)]">
+      <p className="flex items-center gap-1 border-b border-[var(--border)]/40 px-2 pt-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--muted)]">
+        {icon ? <StatIcon name={icon} className="h-3 w-3 shrink-0 opacity-70" /> : null}
         {label}
       </p>
       {children}
@@ -172,7 +173,22 @@ function HealBreakdown({ p, maxTotal }: { p: StoredPlayer; maxTotal: number }) {
 // share of itself is always exactly 100%), which looks identical game to
 // game and carries no real information -- using the whole lobby as the
 // baseline means both polygons are genuine, varying data.
-type HexAxis = { label: string; playerRatio: number; teamRatio: number };
+// playerRatio/teamRatio (both "% of this game's 10-player average") only
+// drive the polygon's GEOMETRY -- they're never shown as text. Per explicit
+// feedback: showing every stat as a made-up-looking percentage was
+// confusing ("我不是说了只有参团率才是比例吗" -- 参团率/participation is
+// inherently a rate, so it alone displays as a percentage; economy,
+// damage, damage taken, heal and KDA display as their real numbers,
+// exactly like the stat grid above). playerValue/teamValue carry those
+// real numbers, formatted per-axis by `format`.
+type HexAxis = {
+  label: string;
+  playerRatio: number;
+  teamRatio: number;
+  playerValue: number;
+  teamValue: number;
+  format: (n: number) => string;
+};
 
 function avg(values: number[]): number {
   return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
@@ -205,19 +221,31 @@ function buildHexAxes(p: StoredPlayer, team: StoredPlayer[], allPlayers: StoredP
   const gameAvgTaken = avg(allPlayers.map((x) => x.damageTaken));
   const gameAvgKda = avg(allPlayers.map(kdaValue));
 
-  const axis = (label: string, playerValue: number, teamValue: number, base: number): HexAxis => ({
+  const axis = (
+    label: string,
+    playerValue: number,
+    teamValue: number,
+    base: number,
+    format: (n: number) => string
+  ): HexAxis => ({
     label,
     playerRatio: ratioToAvg(playerValue, base),
     teamRatio: ratioToAvg(teamValue, base),
+    playerValue,
+    teamValue,
+    format,
   });
+  const pct = (n: number) => `${Math.round(n)}%`;
+  const int = (n: number) => Math.round(n).toLocaleString("zh-CN");
+  const dec = (n: number) => n.toFixed(2);
 
   return [
-    axis("参团率", participationOf(p, allPlayers), teamAvgOf((x) => participationOf(x, allPlayers)), gameAvgParticipation),
-    axis("经济", p.gold, teamAvgOf((x) => x.gold), gameAvgGold),
-    axis("伤害", p.damageToChampions, teamAvgOf((x) => x.damageToChampions), gameAvgDamage),
-    axis("承伤", p.damageTaken, teamAvgOf((x) => x.damageTaken), gameAvgTaken),
-    axis("治疗", p.heal, teamAvgOf((x) => x.heal), gameAvgHeal),
-    axis("KDA", kdaValue(p), teamAvgOf(kdaValue), gameAvgKda),
+    axis("参团率", participationOf(p, allPlayers), teamAvgOf((x) => participationOf(x, allPlayers)), gameAvgParticipation, pct),
+    axis("经济", p.gold, teamAvgOf((x) => x.gold), gameAvgGold, int),
+    axis("伤害", p.damageToChampions, teamAvgOf((x) => x.damageToChampions), gameAvgDamage, int),
+    axis("承伤", p.damageTaken, teamAvgOf((x) => x.damageTaken), gameAvgTaken, int),
+    axis("治疗", p.heal, teamAvgOf((x) => x.heal), gameAvgHeal, int),
+    axis("KDA", kdaValue(p), teamAvgOf(kdaValue), gameAvgKda, dec),
   ];
 }
 
@@ -267,7 +295,7 @@ function RadarChart({ axes, size = 124 }: { axes: HexAxis[]; size?: number }) {
 function HexLegend({ axes }: { axes: HexAxis[] }) {
   return (
     <div className="flex-1">
-      <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-[var(--muted)]">
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-[var(--muted)]">
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--gold)" }} />
           本人
@@ -276,20 +304,28 @@ function HexLegend({ axes }: { axes: HexAxis[] }) {
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--series-1)" }} />
           本队平均
         </span>
-        <span>基准：本局 10 人平均 = 100%</span>
+        <span className="text-[var(--muted)]/70">· 形状按本局平均换算，数值为实际数据</span>
       </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
-        {axes.map((a) => (
-          <div key={a.label} className="flex items-center justify-between gap-2">
-            <span className="text-[var(--muted)]">{a.label}</span>
-            <span className="tabular-nums">
-              <span className={`font-medium ${a.playerRatio >= 100 ? "text-[var(--status-good)]" : "text-[var(--foreground)]"}`}>
-                {Math.round(a.playerRatio)}%
+      <div className="space-y-1">
+        {axes.map((a) => {
+          const above = a.playerRatio >= a.teamRatio;
+          return (
+            <div key={a.label} className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-[var(--muted)]">{a.label}</span>
+              <span className="flex items-center gap-1.5 tabular-nums">
+                <span className="font-semibold text-[var(--foreground)]">{a.format(a.playerValue)}</span>
+                <svg
+                  viewBox="0 0 10 10"
+                  className={`h-2.5 w-2.5 shrink-0 ${above ? "text-[var(--status-good)]" : "text-[var(--status-critical)] rotate-180"}`}
+                  fill="currentColor"
+                >
+                  <path d="M5 1L9 8H1L5 1Z" />
+                </svg>
+                <span className="text-[var(--muted)]">{a.format(a.teamValue)}</span>
               </span>
-              <span className="text-[var(--muted)]"> / {Math.round(a.teamRatio)}%</span>
-            </span>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -386,49 +422,49 @@ function PlayerDetailCard({
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <StatCell label="补刀">
+        <StatCell label="补刀" icon="cs">
           <StatBar value={p.cs} max={maxima.cs} />
         </StatCell>
-        <StatCell label="视野得分">
+        <StatCell label="视野得分" icon="vision">
           <div className="px-2 pb-1.5 pt-1">
             <p className="text-sm tabular-nums text-[var(--foreground)]">{p.visionScore}</p>
             <p className="text-[10px] text-[var(--muted)]">插眼 {p.wardsPlaced} · 排眼 {p.wardsKilled}</p>
           </div>
         </StatCell>
-        <StatCell label="对英雄输出">
+        <StatCell label="对英雄输出" icon="damage">
           <DamageBreakdown p={p} maxTotal={maxima.damageToChampions} />
         </StatCell>
-        <StatCell label="承受伤害">
+        <StatCell label="承受伤害" icon="taken">
           <StatBar value={p.damageTaken} max={maxima.damageTaken} />
         </StatCell>
-        <StatCell label="伤害减免">
+        <StatCell label="伤害减免" icon="mitigate">
           <StatBar value={p.damageSelfMitigated} max={maxima.damageSelfMitigated} />
         </StatCell>
-        <StatCell label="治疗量">
+        <StatCell label="治疗量" icon="heal">
           <HealBreakdown p={p} maxTotal={maxima.heal} />
         </StatCell>
-        <StatCell label="防御塔伤害">
+        <StatCell label="防御塔伤害" icon="tower">
           <StatBar value={p.turretDamage} max={maxima.turretDamage} />
         </StatCell>
-        <StatCell label="控制时长">
+        <StatCell label="控制时长" icon="cc">
           <StatBar value={p.ccTime} max={maxima.ccTime} suffix=" 秒" />
         </StatCell>
-        <StatCell label="经济">
+        <StatCell label="经济" icon="gold">
           <StatBar value={p.gold} max={maxima.gold} />
           <p className="px-2 pb-1.5 text-[10px] text-[var(--muted)]">已花 {p.goldSpent.toLocaleString("zh-CN")}</p>
         </StatCell>
-        <StatCell label="连杀">
+        <StatCell label="连杀" icon="streak">
           <div className="px-2 pb-1.5 pt-1">
             <p className="text-sm tabular-nums text-[var(--foreground)]">{p.killingSprees} 次</p>
             <p className="text-[10px] text-[var(--muted)]">最大 {p.largestKillingSpree} 连杀</p>
           </div>
         </StatCell>
-        <StatCell label="资源偷取">
+        <StatCell label="资源偷取" icon="steal">
           <div className="px-2 pb-1.5 pt-1">
             <p className="text-sm tabular-nums text-[var(--foreground)]">{p.objectivesStolen}</p>
           </div>
         </StatCell>
-        <StatCell label="死亡时长">
+        <StatCell label="死亡时长" icon="skull">
           <div className="px-2 pb-1.5 pt-1">
             <p className="text-sm tabular-nums text-[var(--foreground)]">{formatSeconds(p.timeSpentDead)}</p>
           </div>
@@ -498,14 +534,14 @@ function TeamSection({
 
 // ---- Match-wide recap: bans, objectives, team totals ------------------
 type ObjectiveKey = "dragon" | "baron" | "tower" | "inhibitor" | "riftHerald" | "atakhan" | "horde";
-const OBJECTIVE_ROWS: { key: ObjectiveKey; label: string }[] = [
-  { key: "tower", label: "防御塔" },
-  { key: "inhibitor", label: "水晶" },
-  { key: "dragon", label: "小龙" },
-  { key: "baron", label: "大龙" },
-  { key: "riftHerald", label: "峡谷先锋" },
-  { key: "atakhan", label: "阿塔坎" },
-  { key: "horde", label: "虚空幼虫" },
+const OBJECTIVE_ROWS: { key: ObjectiveKey; label: string; icon: string }[] = [
+  { key: "tower", label: "防御塔", icon: "tower" },
+  { key: "inhibitor", label: "水晶", icon: "crystal" },
+  { key: "dragon", label: "小龙", icon: "dragon" },
+  { key: "baron", label: "大龙", icon: "baron" },
+  { key: "riftHerald", label: "峡谷先锋", icon: "herald" },
+  { key: "atakhan", label: "阿塔坎", icon: "atakhan" },
+  { key: "horde", label: "虚空幼虫", icon: "voidgrub" },
 ];
 // Standard Summoner's Rift objectives always show, even at 0-0 -- that's
 // still meaningful ("neither team touched dragons"). Atakhan/horde are
@@ -545,12 +581,14 @@ function formatDelta(blue: number, red: number, fmt: (n: number) => string): str
 
 function CompareRow({
   label,
+  icon,
   blue,
   red,
   formatValue,
   first,
 }: {
   label: string;
+  icon?: string;
   blue: number;
   red: number;
   formatValue?: (n: number) => string;
@@ -588,7 +626,10 @@ function CompareRow({
           </span>
         ) : null}
       </span>
-      <span className="w-14 shrink-0 text-center text-[var(--muted)] sm:w-16">{label}</span>
+      <span className="flex w-16 shrink-0 items-center justify-center gap-1 text-center text-[var(--muted)] sm:w-20">
+        {icon ? <StatIcon name={icon} className="h-3 w-3 shrink-0 opacity-70" /> : null}
+        {label}
+      </span>
     </div>
   );
 }
@@ -650,6 +691,51 @@ function ChevronIcon() {
   );
 }
 
+// Small line-icon set (abstract, not literal game icons) used purely as a
+// scan aid next to stat/objective labels -- a label already says what the
+// number is; the icon just breaks up rows of identical text so the eye can
+// jump straight to "the healing row" or "the tower row" instead of reading
+// every label. Kept in a single shared component + path table rather than
+// one file per icon so this stays easy to extend.
+const ICON_PATHS: Record<string, string> = {
+  tower: "M9 21V10.5L6 8V4H8V6H16V4H18V8L15 10.5V21M6 21H18M9 14H15",
+  crystal: "M12 3L18 9L15 21H9L6 9L12 3Z",
+  dragon: "M12 4C7 4 4 8.5 4 13C4 16.5 7.5 19 12 19C16.5 19 20 16.5 20 13C20 8.5 17 4 12 4ZM9 10.5L9.5 8.5M15 10.5L14.5 8.5",
+  herald: "M12 2.5L14.2 8.6L20.5 9.3L15.7 13.4L17.1 19.8L12 16.3L6.9 19.8L8.3 13.4L3.5 9.3L9.8 8.6L12 2.5Z",
+  atakhan: "M12 3L20 8V16L12 21L4 16V8L12 3ZM12 3V21M4 8L20 16M20 8L4 16",
+  voidgrub: "M4.5 15.5C4.5 10.5 8 6.5 12 6.5C16 6.5 19.5 10.5 19.5 15.5C19.5 18.5 16 20 12 20C8 20 4.5 18.5 4.5 15.5ZM9 12.5C9 13 9.5 13.5 10 13.5C10.5 13.5 11 13 11 12.5M13 12.5C13 13 13.5 13.5 14 13.5C14.5 13.5 15 13 15 12.5",
+  kills: "M6.5 17.5L17 7M9 6.5H6.5V9M15 17.5H17.5V15M4 20L8 16",
+  gold: "M12 3V21M8.5 6.8C8.5 5.4 10 4.3 12 4.3C14 4.3 15.5 5.6 15.5 7C15.5 8.4 14.2 8.9 12 9.4C9.8 9.9 8.5 10.6 8.5 12C8.5 13.4 10 14.7 12 14.7C14 14.7 15.5 13.6 15.5 12.2",
+  damage: "M13 2.5L4.5 14H10.5L9.5 21.5L19 10H12.5L13 2.5Z",
+  taken: "M12 3L19.5 6.2V11.2C19.5 15.9 16.3 19.7 12 21C7.7 19.7 4.5 15.9 4.5 11.2V6.2L12 3Z",
+  heal: "M12 20C12 20 4.5 14.8 4.5 9.5C4.5 6.6 6.8 4.7 9.2 4.7C10.5 4.7 11.5 5.4 12 6.3C12.5 5.4 13.5 4.7 14.8 4.7C17.2 4.7 19.5 6.6 19.5 9.5C19.5 14.8 12 20 12 20Z",
+  vision: "M2.5 12C2.5 12 6.5 5.5 12 5.5C17.5 5.5 21.5 12 21.5 12C21.5 12 17.5 18.5 12 18.5C6.5 18.5 2.5 12 2.5 12ZM12 15C13.66 15 15 13.66 15 12C15 10.34 13.66 9 12 9C10.34 9 9 10.34 9 12C9 13.66 10.34 15 12 15Z",
+  mitigate: "M12 3L19.5 6.2V11.2C19.5 15.9 16.3 19.7 12 21C7.7 19.7 4.5 15.9 4.5 11.2V6.2L12 3ZM9 11.8L11 13.8L15.3 9.5",
+  cs: "M12 20.5C7.5 20.5 4 17.3 4 13.2C4 9.1 7.5 5.9 12 5.9C16.5 5.9 20 9.1 20 13.2C20 17.3 16.5 20.5 12 20.5ZM9 13.2H15",
+  cc: "M12 21.5C7.3 21.5 3.5 17.7 3.5 13C3.5 8.3 7.3 4.5 12 4.5C16.7 4.5 20.5 8.3 20.5 13C20.5 17.7 16.7 21.5 12 21.5ZM12 8.5V13L15 15",
+  streak: "M12 2.3C12 2.3 6.3 8.3 6.3 14C6.3 17.4 8.8 19.8 12 19.8C15.2 19.8 17.7 17.4 17.7 14C17.7 8.3 12 2.3 12 2.3Z",
+  steal: "M17.8 3.2L20.8 6.2L10.5 16.5L5.7 18.3L7.5 13.5L17.8 3.2Z",
+  skull: "M12 3.3C7.4 3.3 4.5 6.7 4.5 10.9C4.5 13.7 5.9 15.6 7.3 16.6V19.5H10V17.6H14V19.5H16.7V16.6C18.1 15.6 19.5 13.7 19.5 10.9C19.5 6.7 16.6 3.3 12 3.3ZM9.7 11.3C9.7 11.8 10.1 12.2 10.6 12.2C11.1 12.2 11.5 11.8 11.5 11.3C11.5 10.8 11.1 10.4 10.6 10.4C10.1 10.4 9.7 10.8 9.7 11.3ZM12.5 11.3C12.5 11.8 12.9 12.2 13.4 12.2C13.9 12.2 14.3 11.8 14.3 11.3C14.3 10.8 13.9 10.4 13.4 10.4C12.9 10.4 12.5 10.8 12.5 11.3Z",
+};
+
+function StatIcon({ name, className = "h-3.5 w-3.5" }: { name: string; className?: string }) {
+  const d = ICON_PATHS[name];
+  if (!d) return null;
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
 function TeamOverview({
   players,
   teamStats,
@@ -666,35 +752,40 @@ function TeamOverview({
   const blue = teamStats?.["100"] ?? null;
   const red = teamStats?.["200"] ?? null;
 
-  const totals: { label: string; blue: number; red: number; formatValue?: (n: number) => string }[] = [
-    { label: "总击杀", blue: sumBy(teamA, (p) => p.kills), red: sumBy(teamB, (p) => p.kills) },
+  const totals: { label: string; icon: string; blue: number; red: number; formatValue?: (n: number) => string }[] = [
+    { label: "总击杀", icon: "kills", blue: sumBy(teamA, (p) => p.kills), red: sumBy(teamB, (p) => p.kills) },
     {
       label: "总经济",
+      icon: "gold",
       blue: sumBy(teamA, (p) => p.gold),
       red: sumBy(teamB, (p) => p.gold),
       formatValue: (n) => n.toLocaleString("zh-CN"),
     },
     {
       label: "总伤害",
+      icon: "damage",
       blue: sumBy(teamA, (p) => p.damageToChampions),
       red: sumBy(teamB, (p) => p.damageToChampions),
       formatValue: (n) => n.toLocaleString("zh-CN"),
     },
     {
       label: "总承伤",
+      icon: "taken",
       blue: sumBy(teamA, (p) => p.damageTaken),
       red: sumBy(teamB, (p) => p.damageTaken),
       formatValue: (n) => n.toLocaleString("zh-CN"),
     },
     {
       label: "总治疗",
+      icon: "heal",
       blue: sumBy(teamA, (p) => p.heal),
       red: sumBy(teamB, (p) => p.heal),
       formatValue: (n) => n.toLocaleString("zh-CN"),
     },
-    { label: "总视野", blue: sumBy(teamA, (p) => p.visionScore), red: sumBy(teamB, (p) => p.visionScore) },
+    { label: "总视野", icon: "vision", blue: sumBy(teamA, (p) => p.visionScore), red: sumBy(teamB, (p) => p.visionScore) },
     {
       label: "总减伤",
+      icon: "mitigate",
       blue: sumBy(teamA, (p) => p.damageSelfMitigated),
       red: sumBy(teamB, (p) => p.damageSelfMitigated),
       formatValue: (n) => n.toLocaleString("zh-CN"),
@@ -741,6 +832,7 @@ function TeamOverview({
               <BansStrip label="蓝色方禁用" bans={blue.bans} championMap={championMap} version={version} />
               <BansStrip label="红色方禁用" bans={red.bans} championMap={championMap} version={version} />
             </div>
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">目标</p>
             <div className="space-y-1.5">
               {objectiveRows.map((row) => {
                 const firstKey = FIRST_KEY[row.key];
@@ -756,6 +848,7 @@ function TeamOverview({
                   <CompareRow
                     key={row.key}
                     label={row.label}
+                    icon={row.icon}
                     blue={Number(blue[row.key])}
                     red={Number(red[row.key])}
                     first={firstSide}
@@ -770,10 +863,13 @@ function TeamOverview({
           </p>
         )}
 
-        <div className="mt-4 space-y-1.5 border-t border-[var(--border)]/40 pt-4">
-          {totals.map((row) => (
-            <CompareRow key={row.label} label={row.label} blue={row.blue} red={row.red} formatValue={row.formatValue} />
-          ))}
+        <div className="mt-4 border-t border-[var(--border)]/40 pt-4">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">团队汇总</p>
+          <div className="space-y-1.5">
+            {totals.map((row) => (
+              <CompareRow key={row.label} label={row.label} icon={row.icon} blue={row.blue} red={row.red} formatValue={row.formatValue} />
+            ))}
+          </div>
         </div>
       </div>
     </details>
