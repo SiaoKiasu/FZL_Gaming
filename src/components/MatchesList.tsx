@@ -95,8 +95,25 @@ function TeamBlock({
                 {p.member || p.playerName.split("#")[0]}
               </span>
               <span className="hidden w-16 shrink-0 truncate text-[var(--muted)] sm:block">{p.champion}</span>
-              <span className="ml-auto shrink-0 tabular-nums text-[var(--foreground)]">
-                {p.kills}/{p.deaths}/{p.assists}
+              {p.award ? (
+                <span
+                  title={p.award === "MVP" ? "MVP · 获胜方最佳" : "SVP · 落败方最佳"}
+                  className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    p.award === "MVP"
+                      ? "bg-[var(--status-good)]/10 text-[var(--status-good)]"
+                      : "bg-[var(--status-warning)]/10 text-[var(--status-warning)]"
+                  }`}
+                >
+                  {p.award}
+                </span>
+              ) : null}
+              <span className="ml-auto flex shrink-0 items-center gap-2 tabular-nums">
+                <span className="text-[var(--foreground)]">
+                  {p.kills}/{p.deaths}/{p.assists}
+                </span>
+                <span className="w-9 text-right font-display font-bold text-[var(--gold)]">
+                  {p.score !== null ? p.score.toFixed(1) : "-"}
+                </span>
               </span>
             </div>
           );

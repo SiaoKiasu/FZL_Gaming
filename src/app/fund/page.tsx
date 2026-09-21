@@ -279,9 +279,13 @@ export default async function FundPage() {
               五黑排位平均 MVP 率最高者（当月需满 5 局）
             </p>
             {(() => {
-              const sorted = [...memberStats].sort(
-                (a, b) => b.mvpRate - a.mvpRate || b.rankedGames - a.rankedGames
-              );
+              // Qualified members (>= 5 局) sort above unqualified ones, so
+              // someone who hasn't met the threshold never visually outranks
+              // the actual leader just by having a hot small sample size.
+              const sorted = [...memberStats].sort((a, b) => {
+                if (a.qualified !== b.qualified) return a.qualified ? -1 : 1;
+                return b.mvpRate - a.mvpRate || b.rankedGames - a.rankedGames;
+              });
               const leaderId = sorted.find((s) => s.qualified)?.nickname;
               if (!sorted.some((s) => s.rankedGames > 0)) {
                 return (
