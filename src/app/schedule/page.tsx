@@ -5,6 +5,7 @@ import { beijingDateString, getSignupDatesInRange, getSignupsForDate } from "@/l
 import { formatMinutes } from "@/lib/time";
 import { POSITION_LABEL, isPosition } from "@/lib/positions";
 import { roster } from "@/lib/roster";
+import { getCurrentMember } from "@/lib/session";
 import championMap from "@/data/champions.json";
 import Pill from "@/components/Pill";
 import ScheduleSignupForm from "@/components/ScheduleSignupForm";
@@ -57,6 +58,7 @@ export default async function SchedulePage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
+  const currentMember = await getCurrentMember();
   const { date: rawDate } = await searchParams;
   const today = beijingDateString();
   const selectedDate = rawDate && DATE_RE.test(rawDate) ? rawDate : today;
@@ -224,7 +226,9 @@ export default async function SchedulePage({
                           </Pill>
                         ))}
                       </div>
-                      <CancelSignupButton date={selectedDate} member={s.member} />
+                      {s.member === currentMember ? (
+                        <CancelSignupButton date={selectedDate} />
+                      ) : null}
                     </div>
                     {s.declaration ? (
                       <p className="mt-3 border-l-2 border-[var(--gold)]/50 pl-3 text-sm italic text-[var(--muted)]">
@@ -237,12 +241,21 @@ export default async function SchedulePage({
             )}
           </div>
 
-          <ScheduleSignupForm
-            date={selectedDate}
-            members={roster.map((p) => ({ id: p.id, nickname: p.nickname, photo: p.photo }))}
-            championOptions={championOptions}
-            existingByMember={existingByMember}
-          />
+          {currentMember ? (
+            <ScheduleSignupForm
+              date={selectedDate}
+              member={currentMember}
+              championOptions={championOptions}
+              existingByMember={existingByMember}
+            />
+          ) : (
+            <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--bg-panel)] p-6 text-sm text-[var(--muted)]">
+              <Link href="/login?next=/schedule" className="text-[var(--gold)] underline">
+                登录
+              </Link>
+              &nbsp;之后就能预约了。只能给自己报名，也只能取消自己的。
+            </div>
+          )}
         </div>
       </div>
     </div>

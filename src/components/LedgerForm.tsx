@@ -13,9 +13,12 @@ const buttonClass =
 export default function LedgerForm({
   passwordSet,
   initialDate,
+  member,
 }: {
   passwordSet: boolean;
   initialDate: string;
+  /** Logged-in member; recorded as 经手人 by the server, not by this form. */
+  member: string;
 }) {
   const router = useRouter();
 
@@ -79,7 +82,6 @@ export default function LedgerForm({
   const [type, setType] = useState<string>("收入");
   const [item, setItem] = useState("");
   const [amount, setAmount] = useState("");
-  const [handler, setHandler] = useState("郑儿朗");
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState("");
 
@@ -91,7 +93,7 @@ export default function LedgerForm({
       const resp = await fetch("/api/fund/ledger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, date, type, item, amount, handler }),
+        body: JSON.stringify({ password, date, type, item, amount }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -222,14 +224,6 @@ export default function LedgerForm({
           required
         />
         <input
-          type="text"
-          value={handler}
-          onChange={(e) => setHandler(e.target.value)}
-          placeholder="经手人"
-          className={inputClass}
-          required
-        />
-        <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -245,6 +239,10 @@ export default function LedgerForm({
         >
           {status === "loading" ? "提交中…" : "记一笔"}
         </button>
+        <p className="text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+          经手人记为 <span className="text-[var(--gold-soft)]">{member}</span>
+          （取自登录身份，填不了别人）
+        </p>
       </form>
       {status === "error" ? <p className="mt-2 text-xs text-[var(--status-critical)]">{error}</p> : null}
       {status === "done" ? <p className="mt-2 text-xs text-[var(--status-good)]">已记录</p> : null}

@@ -23,12 +23,12 @@ const quickLinks = [
     desc: "预约今晚开黑、报位置、选英雄意向,留一句今日宣言。",
     cta: "去预约 →",
   },
-];
-
-const comingSoon = [
   {
+    href: "/videos",
+    eyebrow: "Highlights",
     title: "视频 / 集锦",
-    desc: "比赛录像与个人集锦上传,集中展示与回顾。",
+    desc: "传自己的高光片段,全队一起打分评论。",
+    cta: "去看看 →",
   },
 ];
 
@@ -87,33 +87,6 @@ export default function Home() {
             </Link>
           ))}
 
-          {comingSoon.map((item) => (
-            <div
-              key={item.title}
-              className="flex flex-col justify-between gap-4 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]/60 p-6"
-            >
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="font-display text-sm font-semibold uppercase tracking-[0.3em] text-[var(--muted)]">
-                    Highlights
-                  </p>
-                  <span className="rounded-sm border border-[var(--border)] px-1 text-[10px] tracking-wide text-[var(--gold)]">
-                    SOON
-                  </span>
-                </div>
-                <h2 className="font-display mt-2 text-2xl font-bold text-[var(--muted)]">
-                  {item.title}
-                </h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">{item.desc}</p>
-              </div>
-              <span
-                className="self-start rounded-sm border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--muted)]"
-                title="敬请期待"
-              >
-                敬请期待
-              </span>
-            </div>
-          ))}
         </div>
       </section>
     </div>
