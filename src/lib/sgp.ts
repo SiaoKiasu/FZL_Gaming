@@ -103,6 +103,13 @@ export type FetchOptions = {
   maxScan?: number;
   sinceMs?: number;
   minTeamMembers?: number;
+  // Games already stored in the DB (from a prior successful sync). When
+  // set, pagination for a player stops as soon as it hits one of these --
+  // everything older was covered by a previous sync, so there's no need
+  // to keep re-scanning all the way back to sinceMs every single run.
+  // Omit (or pass an empty set, e.g. for refreshAll) to scan the full
+  // sinceMs window regardless of what's already stored.
+  knownGameIds?: Set<string>;
 };
 
 /** Page through one player's ranked history, keeping only 车队 games
@@ -117,9 +124,11 @@ export async function fetchPlayerRosterGames(
   const sinceMs = opts.sinceMs ?? SYNC_SINCE_MS;
   const minTeamMembers = opts.minTeamMembers ?? MIN_TEAM_MEMBERS;
 
+  const knownGameIds = opts.knownGameIds;
   const got = new Map<string, Json>();
   let start = 0;
   let firstPage = true;
+  let caughtUpToKnown = false;
   while (got.size < want && start < maxScan) {
     if (!firstPage) await sleep(REQUEST_GAP_MS);
     firstPage = false;
@@ -136,6 +145,13 @@ export async function fetchPlayerRosterGames(
       const participants = (g.participants as Json[]) ?? [];
       if (teamRosterCount(g, participants) < minTeamMembers) continue;
       const gameId = String(pick(g, "gameId", "matchId"));
+      if (knownGameIds?.has(gameId)) {
+        // Newest-first history hit a game this player already has synced
+        // -- everything past this point was covered by an earlier sync,
+        // so there's nothing new left to find for this player.
+        caughtUpToKnown = true;
+        continue;
+      }
       if (!got.has(gameId) && got.size < want) got.set(gameId, g);
     }
     start += PAGE;
@@ -143,6 +159,7 @@ export async function fetchPlayerRosterGames(
     // cutoff, every later page will be too — stop scanning this player.
     if (!sawAnyRecentEnough) break;
     if (games.length < PAGE) break;
+    if (caughtUpToKnown) break;
   }
   return { games: got, scanned: start };
 }
