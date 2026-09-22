@@ -51,8 +51,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { games, perPlayer } = await syncAllRosterGames(token);
+    // Fetch what's already stored BEFORE scanning SGP, so a routine sync
+    // can stop paging through a player's history as soon as it reaches a
+    // game that's already fully synced -- otherwise every run re-scans
+    // all the way back to SYNC_SINCE_MS regardless of how much of that
+    // window was already covered by an earlier sync, which is what was
+    // pushing this route past its 60s budget (Vercel Runtime Timeout)
+    // once enough games had piled up over the month. Known-but-incomplete
+    // games are deliberately left OUT of the stop-set so the existing
+    // self-heal-on-next-sync repair path keeps working.
     const [known, incomplete] = await Promise.all([getKnownGameIds(), getIncompleteGameIds()]);
+    const fullyKnown = refreshAll
+      ? undefined
+      : new Set([...known].filter((id) => !incomplete.has(id)));
+    const { games, perPlayer } = await syncAllRosterGames(token, { knownGameIds: fullyKnown });
     const newGames = games.filter((g) => !known.has(g.gameId));
     const repairedGames = games.filter((g) => known.has(g.gameId) && incomplete.has(g.gameId));
     const toStore = refreshAll ? games : [...newGames, ...repairedGames];
