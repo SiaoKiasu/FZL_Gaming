@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { POSITIONS, POSITION_LABEL } from "@/lib/positions";
@@ -21,47 +20,30 @@ type ExistingSignup = {
   endMinute: number | null;
 };
 
-type Member = {
-  id: string;
-  nickname: string;
-  photo: string;
-};
-
 export default function ScheduleSignupForm({
   date,
-  members,
+  member,
   championOptions,
   existingByMember,
 }: {
   date: string;
-  members: Member[];
+  /** The logged-in member. The form is only rendered when someone is. */
+  member: string;
   championOptions: string[];
   existingByMember: Record<string, ExistingSignup>;
 }) {
   const router = useRouter();
-  const [member, setMember] = useState("");
-  const [position, setPosition] = useState("");
-  const [champ1, setChamp1] = useState("");
-  const [champ2, setChamp2] = useState("");
-  const [champ3, setChamp3] = useState("");
-  const [declaration, setDeclaration] = useState("");
+  const mine = existingByMember[member];
+  const [position, setPosition] = useState(mine?.position ?? "");
+  const [champ1, setChamp1] = useState(mine?.champions[0] ?? "");
+  const [champ2, setChamp2] = useState(mine?.champions[1] ?? "");
+  const [champ3, setChamp3] = useState(mine?.champions[2] ?? "");
+  const [declaration, setDeclaration] = useState(mine?.declaration ?? "");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState("");
 
-  function handleMemberSelect(next: string) {
-    setMember(next);
-    const existing = existingByMember[next];
-    setPosition(existing?.position ?? "");
-    setChamp1(existing?.champions[0] ?? "");
-    setChamp2(existing?.champions[1] ?? "");
-    setChamp3(existing?.champions[2] ?? "");
-    setDeclaration(existing?.declaration ?? "");
-    setStartTime(existing?.startMinute != null ? formatMinutes(existing.startMinute) : "");
-    setEndTime(existing?.endMinute != null ? formatMinutes(existing.endMinute) : "");
-    setStatus("idle");
-  }
 
   // Native time pickers don't reliably enforce `step` across browsers, so
   // snap to the nearest 5-minute mark ourselves when the field loses focus.
@@ -82,7 +64,6 @@ export default function ScheduleSignupForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           date,
-          member,
           position,
           champions: [champ1, champ2, champ3],
           declaration,
@@ -116,35 +97,9 @@ export default function ScheduleSignupForm({
         预约今晚
       </p>
 
-      <div className="mt-4">
-        <div className="grid grid-cols-4 gap-3">
-          {members.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => handleMemberSelect(m.nickname)}
-              className="flex flex-col items-center gap-1 justify-self-center"
-            >
-              <span
-                className={`relative block h-12 w-12 overflow-hidden rounded-full border-2 transition ${
-                  member === m.nickname
-                    ? "border-[var(--gold)]"
-                    : "border-[var(--border)] opacity-70 hover:opacity-100"
-                }`}
-              >
-                <Image src={m.photo} alt={m.nickname} fill className="object-cover" sizes="48px" />
-              </span>
-              <span
-                className={`line-clamp-1 text-center text-[10px] ${
-                  member === m.nickname ? "text-[var(--gold)]" : "text-[var(--muted)]"
-                }`}
-              >
-                {m.nickname}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <p className="mt-3 text-xs text-[var(--muted)]">
+        以 <span className="text-[var(--gold-soft)]">{member}</span> 的身份预约
+      </p>
 
       <div className="mt-5">
         <p className="mb-2 text-xs text-[var(--muted)]">预约位置</p>

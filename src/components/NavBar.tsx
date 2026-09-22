@@ -9,11 +9,10 @@ const links = [
   { href: "/fund", label: "峡谷基金" },
   { href: "/matches", label: "战绩" },
   { href: "/schedule", label: "赛程" },
+  { href: "/videos", label: "视频" },
 ];
 
-const comingSoon = ["视频"];
-
-export default function NavBar() {
+export default function NavBar({ member }: { member: string | null }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -38,18 +37,14 @@ export default function NavBar() {
               {l.label}
             </Link>
           ))}
-          {comingSoon.map((label) => (
-            <span
-              key={label}
-              className="inline-flex cursor-default items-center gap-1 text-[var(--muted)]"
-              title="敬请期待"
-            >
-              {label}
-              <span className="rounded-sm border border-[var(--border)] px-1 text-[10px] tracking-wide text-[var(--gold)]">
-                SOON
-              </span>
-            </span>
-          ))}
+          <Link
+            href="/login"
+            className="flex items-center gap-1.5 text-sm font-medium text-[var(--muted)] transition hover:text-[var(--gold)]"
+            title={member ? "账号设置" : "登录"}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--gold)]" style={{ opacity: member ? 1 : 0.25 }} />
+            {member ?? "登录"}
+          </Link>
         </nav>
 
         <button
@@ -76,18 +71,13 @@ export default function NavBar() {
                 {l.label}
               </Link>
             ))}
-            {comingSoon.map((label) => (
-              <span
-                key={label}
-                className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--muted)]"
-                title="敬请期待"
-              >
-                {label}
-                <span className="rounded-sm border border-[var(--border)] px-1 text-[10px] tracking-wide text-[var(--gold)]">
-                  SOON
-                </span>
-              </span>
-            ))}
+            <Link
+              href="/login"
+              onClick={() => setOpen(false)}
+              className="rounded-sm px-2 py-3 text-sm font-medium text-[var(--muted)] transition hover:bg-white/5 hover:text-[var(--gold)]"
+            >
+              {member ? `${member}（账号设置）` : "登录"}
+            </Link>
           </div>
         </nav>
       ) : null}

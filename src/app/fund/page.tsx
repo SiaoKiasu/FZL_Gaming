@@ -13,7 +13,9 @@ import { beijingDateString } from "@/lib/schedule";
 import ShareBar from "@/components/ShareBar";
 import StatTile from "@/components/StatTile";
 import Pill from "@/components/Pill";
+import Link from "next/link";
 import LedgerForm from "@/components/LedgerForm";
+import { getCurrentMember } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +51,7 @@ const EMPTY_STATS: LiveMemberStat[] = memberIdMap.map((m) => ({
 }));
 
 export default async function FundPage() {
+  const currentMember = await getCurrentMember();
   const dbReady = isDbConfigured();
   const [liveStats, ledgerEntries, ledgerPasswordHash] = await Promise.all([
     getLiveMemberStats(),
@@ -416,7 +419,20 @@ export default async function FundPage() {
 
         {dbReady ? (
           <div className="mb-6">
-            <LedgerForm passwordSet={Boolean(ledgerPasswordHash)} initialDate={beijingDateString()} />
+            {currentMember ? (
+              <LedgerForm
+                passwordSet={Boolean(ledgerPasswordHash)}
+                initialDate={beijingDateString()}
+                member={currentMember}
+              />
+            ) : (
+              <p className="rounded-sm border border-dashed border-[var(--border)] p-6 text-sm text-[var(--muted)]">
+                <Link href="/login?next=/fund" className="text-[var(--gold)] underline">
+                  登录
+                </Link>
+                &nbsp;之后可以填流水。经手人会自动记成登录的那个人，改不了。
+              </p>
+            )}
           </div>
         ) : null}
 

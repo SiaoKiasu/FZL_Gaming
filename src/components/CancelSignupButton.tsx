@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function CancelSignupButton({ date, member }: { date: string; member: string }) {
+export default function CancelSignupButton({ date }: { date: string }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -14,7 +14,7 @@ export default function CancelSignupButton({ date, member }: { date: string; mem
       const resp = await fetch("/api/schedule/signup", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, member }),
+        body: JSON.stringify({ date }),
       });
       if (resp.ok) {
         router.refresh();

@@ -1,20 +1,27 @@
 import { NextResponse } from "next/server";
+import { getCurrentMember } from "@/lib/session";
 import { isDbConfigured } from "@/lib/db";
 import { deleteSignup, upsertSignup } from "@/lib/schedule";
 import { isPosition } from "@/lib/positions";
 import { isValidMinute, parseTimeString } from "@/lib/time";
-import { roster } from "@/lib/roster";
 import championMap from "@/data/champions.json";
 
 export const dynamic = "force-dynamic";
 
-const knownMembers = new Set(roster.map((p) => p.nickname));
 const knownChampions = new Set(Object.values(championMap as Record<string, string>));
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: Request) {
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "数据库还没接好" }, { status: 503 });
+  }
+
+  // Identity comes from the session, so a member can only ever sign
+  // themselves up -- this used to accept any roster nickname in the body,
+  // which meant anyone could enter or withdraw anyone else.
+  const member = await getCurrentMember();
+  if (!member) {
+    return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
 
   let body: unknown;
@@ -24,14 +31,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求格式不对" }, { status: 400 });
   }
 
-  const { date, member, position, champions, declaration, startTime, endTime } =
+  const { date, position, champions, declaration, startTime, endTime } =
     (body ?? {}) as Record<string, unknown>;
 
   if (typeof date !== "string" || !DATE_RE.test(date)) {
     return NextResponse.json({ error: "日期格式不对" }, { status: 400 });
-  }
-  if (typeof member !== "string" || !knownMembers.has(member)) {
-    return NextResponse.json({ error: "请选择车队成员" }, { status: 400 });
   }
   if (typeof position !== "string" || !isPosition(position)) {
     return NextResponse.json({ error: "请选择位置" }, { status: 400 });
@@ -98,6 +102,11 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "数据库还没接好" }, { status: 503 });
   }
 
+  const member = await getCurrentMember();
+  if (!member) {
+    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -105,13 +114,10 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "请求格式不对" }, { status: 400 });
   }
 
-  const { date, member } = (body ?? {}) as Record<string, unknown>;
+  const { date } = (body ?? {}) as Record<string, unknown>;
 
   if (typeof date !== "string" || !DATE_RE.test(date)) {
     return NextResponse.json({ error: "日期格式不对" }, { status: 400 });
-  }
-  if (typeof member !== "string" || !knownMembers.has(member)) {
-    return NextResponse.json({ error: "请选择车队成员" }, { status: 400 });
   }
 
   try {

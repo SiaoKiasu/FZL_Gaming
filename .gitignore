@@ -25,13 +25,17 @@
 *.pem
 
 # debug
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files -- .env.local holds the database URL, SESSION_SECRET and the COS
+# keys, so the blanket ignore stays. The example file carries names only,
+# never values, and is what tells a new maintainer what needs configuring.
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +43,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+
+# claude code -- 本地个人设置。团队共享的 .claude/settings.json 不在此列，
+# 想共享配置时把它单独 git add 即可。
+.claude/settings.local.json
