@@ -2,6 +2,13 @@
 @import "tailwindcss";
 
 :root {
+  /* The whole site is a single fixed dark theme (no light mode toggle), so
+     tell the browser to render native form chrome -- <select> dropdowns,
+     the <input type="date"> calendar, datalist popups, scrollbars -- with
+     dark UA styling instead of the default stark-white popups, which used
+     to look jarring against the gold/dark design everywhere they appeared
+     (schedule 英雄意向 field, 峡谷基金 ledger type/date fields, ...). */
+  color-scheme: dark;
   --bg: #0a0f1e;
   --bg-panel: #0f172e;
   --gold: #e7b655;

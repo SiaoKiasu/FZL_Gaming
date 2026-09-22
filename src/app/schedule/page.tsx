@@ -6,7 +6,6 @@ import { formatMinutes } from "@/lib/time";
 import { POSITION_LABEL, isPosition } from "@/lib/positions";
 import { roster } from "@/lib/roster";
 import { getCurrentMember } from "@/lib/session";
-import championMap from "@/data/champions.json";
 import Pill from "@/components/Pill";
 import ScheduleSignupForm from "@/components/ScheduleSignupForm";
 import ScheduleTimeline from "@/components/ScheduleTimeline";
@@ -74,9 +73,6 @@ export default async function SchedulePage({
     : [[], new Set<string>()];
 
   const photoByMember = Object.fromEntries(roster.map((p) => [p.nickname, p.photo]));
-  const championOptions = Array.from(new Set(Object.values(championMap as Record<string, string>))).sort(
-    (a, b) => a.localeCompare(b, "zh-Hans-CN")
-  );
   const existingByMember = Object.fromEntries(
     signups.map((s) => [
       s.member,
@@ -245,7 +241,6 @@ export default async function SchedulePage({
             <ScheduleSignupForm
               date={selectedDate}
               member={currentMember}
-              championOptions={championOptions}
               existingByMember={existingByMember}
             />
           ) : (

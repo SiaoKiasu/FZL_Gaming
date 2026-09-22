@@ -1,6 +1,11 @@
 import "server-only";
 
-import championMap from "@/data/champions.json";
+// Titles (称号), not real names -- e.g. 134 -> "暗黑元首", not "辛德拉".
+// This is what has always been stored in match_players.champion and shown
+// throughout match history, so it stays on the title file rather than the
+// real-name one in champions.json (that one now backs the schedule page's
+// searchable champion picker instead -- see ChampionCombobox).
+import championMap from "@/data/championTitles.json";
 import { scoreGame } from "@/lib/rating";
 import {
   MIN_TEAM_MEMBERS,

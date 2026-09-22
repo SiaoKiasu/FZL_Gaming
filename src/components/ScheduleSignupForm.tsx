@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { POSITIONS, POSITION_LABEL } from "@/lib/positions";
 import { formatMinutes, MAX_MINUTE, parseTimeString, roundToStep } from "@/lib/time";
+import ChampionCombobox from "@/components/ChampionCombobox";
 
 // Half-hour candidates across the whole day, offered via <datalist> so the
 // native time picker shows quick options without losing free entry -- any
@@ -23,13 +24,11 @@ type ExistingSignup = {
 export default function ScheduleSignupForm({
   date,
   member,
-  championOptions,
   existingByMember,
 }: {
   date: string;
   /** The logged-in member. The form is only rendered when someone is. */
   member: string;
-  championOptions: string[];
   existingByMember: Record<string, ExistingSignup>;
 }) {
   const router = useRouter();
@@ -162,25 +161,15 @@ export default function ScheduleSignupForm({
           { label: "英雄意向 2", value: champ2, set: setChamp2 },
           { label: "英雄意向 3", value: champ3, set: setChamp3 },
         ].map((f, i) => (
-          <label key={f.label} className="flex flex-col gap-1 text-xs text-[var(--muted)]">
-            {f.label}
-            <input
-              type="text"
-              list="fzl-champion-options"
-              value={f.value}
-              onChange={(e) => f.set(e.target.value)}
-              placeholder={i === 0 ? "输入拼音/名字搜索" : "可留空"}
-              className={champInputClass}
-              autoComplete="off"
-            />
-          </label>
+          <ChampionCombobox
+            key={f.label}
+            label={f.label}
+            value={f.value}
+            onChange={f.set}
+            placeholder={i === 0 ? "输入拼音/名字搜索，比如 xindela 或辛德拉" : "可留空"}
+          />
         ))}
       </div>
-      <datalist id="fzl-champion-options">
-        {championOptions.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
 
       <label className="mt-5 flex flex-col gap-1 text-xs text-[var(--muted)]">
         今日宣言
