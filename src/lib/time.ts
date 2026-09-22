@@ -2,10 +2,13 @@
 // (client), its API route (server) and the timeline display (server).
 // Deliberately has no "server-only" import so client components can use it.
 //
-// Bookings are same-day only, 5-minute granularity, minutes since 00:00.
-// Max representable end time is 23:55 (1435) -- there's no overnight
-// wraparound yet (a session that runs past midnight just gets logged as
-// ending at 23:55).
+// Both startMinute and endMinute are wall-clock minutes since 00:00 on the
+// signup's date (5-minute granularity, 0-1435). A booking can cross
+// midnight: when endMinute <= startMinute, the session is understood to
+// run past 00:00 into the next calendar day. Use effectiveEndMinute() /
+// crossesMidnight() below instead of comparing the raw fields directly
+// whenever you need continuous range math (duration, overlap, timeline
+// position) rather than the literal clock time.
 
 export const TIME_STEP_MINUTES = 5;
 export const MINUTES_PER_DAY = 24 * 60;
@@ -36,4 +39,17 @@ export function formatMinutes(m: number): string {
 export function roundToStep(m: number): number {
   const rounded = Math.round(m / TIME_STEP_MINUTES) * TIME_STEP_MINUTES;
   return Math.min(Math.max(rounded, 0), MAX_MINUTE);
+}
+
+/** Extend endMinute past MINUTES_PER_DAY when a booking crosses midnight,
+ * so callers can do continuous range/overlap math (e.g. 23:00 -> 01:00
+ * becomes 1380 -> 1500) instead of the raw wall-clock value wrapping back
+ * to something smaller than startMinute. */
+export function effectiveEndMinute(startMinute: number, endMinute: number): number {
+  return endMinute <= startMinute ? endMinute + MINUTES_PER_DAY : endMinute;
+}
+
+/** True when a booking's end time falls on the day after its signup date. */
+export function crossesMidnight(startMinute: number, endMinute: number): boolean {
+  return endMinute <= startMinute;
 }

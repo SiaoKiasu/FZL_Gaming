@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { isDbConfigured } from "@/lib/db";
 import { beijingDateString, getSignupDatesInRange, getSignupsForDate } from "@/lib/schedule";
-import { formatMinutes } from "@/lib/time";
+import { crossesMidnight, formatMinutes } from "@/lib/time";
 import { POSITION_LABEL, isPosition } from "@/lib/positions";
 import { roster } from "@/lib/roster";
 import { getCurrentMember } from "@/lib/session";
@@ -213,7 +213,9 @@ export default async function SchedulePage({
                         ) : null}
                         {s.startMinute !== null && s.endMinute !== null ? (
                           <Pill tone="good">
-                            {formatMinutes(s.startMinute)}–{formatMinutes(s.endMinute)}
+                            {formatMinutes(s.startMinute)}–
+                            {crossesMidnight(s.startMinute, s.endMinute) ? "次日" : ""}
+                            {formatMinutes(s.endMinute)}
                           </Pill>
                         ) : null}
                         {s.champions.map((c) => (

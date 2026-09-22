@@ -54,7 +54,10 @@ export async function POST(req: Request) {
   }
 
   // Booking window is optional -- either both blank (no window set) or
-  // both a valid "HH:MM" 5-minute-aligned string with start < end.
+  // both a valid "HH:MM" 5-minute-aligned string. start > end is allowed
+  // and means the session runs past midnight into the next day (e.g.
+  // 23:00 -> 01:00); only start === end is rejected, since that's
+  // ambiguous (zero-length vs. a full 24 hours) rather than a real window.
   const startBlank = startTime === undefined || startTime === null || startTime === "";
   const endBlank = endTime === undefined || endTime === null || endTime === "";
   let startMinute: number | null = null;
@@ -71,8 +74,8 @@ export async function POST(req: Request) {
     if (s === null || e === null || !isValidMinute(s) || !isValidMinute(e)) {
       return NextResponse.json({ error: "时间格式不对，需要 5 分钟为单位" }, { status: 400 });
     }
-    if (s >= e) {
-      return NextResponse.json({ error: "结束时间要晚于开始时间（暂不支持跨零点）" }, { status: 400 });
+    if (s === e) {
+      return NextResponse.json({ error: "开始和结束时间不能一样" }, { status: 400 });
     }
     startMinute = s;
     endMinute = e;

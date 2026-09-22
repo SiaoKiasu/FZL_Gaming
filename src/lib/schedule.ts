@@ -23,8 +23,9 @@ export type Signup = {
   champions: string[];
   declaration: string;
   updatedAt: string;
-  // Minutes since 00:00, same-day only (no overnight wraparound yet).
-  // Both null when the member didn't set a booking window.
+  // Wall-clock minutes since 00:00 on `date`. A booking can cross
+  // midnight -- see the effectiveEndMinute()/crossesMidnight() note in
+  // lib/time.ts. Both null when the member didn't set a booking window.
   startMinute: number | null;
   endMinute: number | null;
 };

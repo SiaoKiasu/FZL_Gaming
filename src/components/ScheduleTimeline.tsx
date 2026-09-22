@@ -1,18 +1,34 @@
 import Image from "next/image";
-import { formatMinutes, MINUTES_PER_DAY, TIME_STEP_MINUTES } from "@/lib/time";
+import { effectiveEndMinute, formatMinutes, MINUTES_PER_DAY, TIME_STEP_MINUTES } from "@/lib/time";
 
 type TimelineEntry = {
   member: string;
+  // Raw wall-clock minute the booking starts at, always within one day
+  // (0-1435).
   startMinute: number;
+  // "Effective" end -- extended past MINUTES_PER_DAY when the booking
+  // crosses midnight, so every range/overlap calculation below can treat
+  // it as one continuous span instead of the clock wrapping back below
+  // startMinute. Recover the real end-of-day clock time for display with
+  // `endMinute % MINUTES_PER_DAY`.
   endMinute: number;
+  crossesMidnight: boolean;
 };
 
-const BUCKETS = MINUTES_PER_DAY / TIME_STEP_MINUTES; // 288, 5-minute resolution
+// Two days' worth of 5-minute buckets so a booking that crosses midnight
+// (end > MINUTES_PER_DAY in "effective" terms) still fits on the axis.
+const BUCKETS = (2 * MINUTES_PER_DAY) / TIME_STEP_MINUTES; // 576, 5-minute resolution
 const PAD_HOURS = 1;
 const MIN_SPAN_MINUTES = 4 * 60; // don't zoom in tighter than a 4-hour window
 
 function pct(minute: number, rangeStart: number, rangeSpan: number) {
   return ((minute - rangeStart) / rangeSpan) * 100;
+}
+
+/** Render an "effective" minute (possibly past MINUTES_PER_DAY, for a
+ * window that crosses midnight) back to its real HH:MM clock time. */
+function formatClock(m: number) {
+  return formatMinutes(m % MINUTES_PER_DAY);
 }
 
 /** Only the evening (or whenever) window people actually booked has anything
@@ -23,10 +39,10 @@ function computeRange(entries: TimelineEntry[]) {
   const minStart = Math.min(...entries.map((e) => e.startMinute));
   const maxEnd = Math.max(...entries.map((e) => e.endMinute));
   let rangeStart = Math.max(0, Math.floor(minStart / 60) * 60 - PAD_HOURS * 60);
-  let rangeEnd = Math.min(MINUTES_PER_DAY, Math.ceil(maxEnd / 60) * 60 + PAD_HOURS * 60);
+  let rangeEnd = Math.min(2 * MINUTES_PER_DAY, Math.ceil(maxEnd / 60) * 60 + PAD_HOURS * 60);
   if (rangeEnd - rangeStart < MIN_SPAN_MINUTES) {
     const mid = (rangeStart + rangeEnd) / 2;
-    rangeEnd = Math.min(MINUTES_PER_DAY, Math.floor((mid + MIN_SPAN_MINUTES / 2) / 60) * 60);
+    rangeEnd = Math.min(2 * MINUTES_PER_DAY, Math.floor((mid + MIN_SPAN_MINUTES / 2) / 60) * 60);
     rangeStart = Math.max(0, rangeEnd - MIN_SPAN_MINUTES);
   }
   return { rangeStart, rangeEnd };
@@ -96,7 +112,7 @@ function BookingBar({
 }) {
   const left = pct(entry.startMinute, rangeStart, rangeSpan);
   const width = Math.max(pct(entry.endMinute, rangeStart, rangeSpan) - left, 2);
-  const label = `${formatMinutes(entry.startMinute)}–${formatMinutes(entry.endMinute)}`;
+  const label = `${formatMinutes(entry.startMinute)}–${entry.crossesMidnight ? "次日" : ""}${formatClock(entry.endMinute)}`;
   // Keep the time-range text outside the highlighted block itself so it's
   // never clipped by a narrow bar -- flip it to the other side once the
   // bar runs past ~70% of the track so it doesn't fall off the right edge.
@@ -128,10 +144,15 @@ export default function ScheduleTimeline({
 }) {
   const entries: TimelineEntry[] = signups
     .filter(
-      (s): s is TimelineEntry & { member: string } =>
-        s.startMinute !== null && s.endMinute !== null && s.endMinute > s.startMinute
+      (s): s is { member: string; startMinute: number; endMinute: number } =>
+        s.startMinute !== null && s.endMinute !== null && s.startMinute !== s.endMinute
     )
-    .map((s) => ({ member: s.member, startMinute: s.startMinute as number, endMinute: s.endMinute as number }));
+    .map((s) => ({
+      member: s.member,
+      startMinute: s.startMinute,
+      endMinute: effectiveEndMinute(s.startMinute, s.endMinute),
+      crossesMidnight: s.endMinute <= s.startMinute,
+    }));
 
   if (entries.length === 0) {
     return (
@@ -154,7 +175,7 @@ export default function ScheduleTimeline({
         </p>
         {peak ? (
           <span className="rounded-full border border-[var(--gold)]/50 bg-[var(--gold)]/10 px-3 py-1 text-xs font-semibold text-[var(--gold)]">
-            人最多的时段：{formatMinutes(peak.startMinute)}–{formatMinutes(peak.endMinute)} · {maxCount} 人同时在线
+            人最多的时段：{formatClock(peak.startMinute)}–{formatClock(peak.endMinute)} · {maxCount} 人同时在线
           </span>
         ) : null}
       </div>
@@ -169,7 +190,7 @@ export default function ScheduleTimeline({
               className="absolute -translate-x-1/2"
               style={{ left: `${pct(h * 60, rangeStart, rangeSpan)}%` }}
             >
-              {h}
+              {h % 24}
             </span>
           ))}
         </div>
@@ -219,7 +240,7 @@ export default function ScheduleTimeline({
                     width: `${pct(seg.endMinute, rangeStart, rangeSpan) - pct(seg.startMinute, rangeStart, rangeSpan)}%`,
                     backgroundColor: `rgba(231, 182, 85, ${alpha})`,
                   }}
-                  title={`${formatMinutes(seg.startMinute)}–${formatMinutes(seg.endMinute)} · ${seg.count} 人`}
+                  title={`${formatClock(seg.startMinute)}–${formatClock(seg.endMinute)} · ${seg.count} 人`}
                 />
               );
             })}
