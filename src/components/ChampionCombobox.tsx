@@ -3,24 +3,36 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import championSearchData from "@/data/championSearch.json";
 
-type ChampionEntry = { name: string; py: string; initials: string };
+type ChampionEntry = {
+  title: string;
+  name: string;
+  display: string;
+  py: string;
+  initials: string;
+};
 
 // Sorted once at module load, not per render -- this list never changes at
-// runtime. Real Chinese name is the primary field now (see champions.json's
-// comment in sgp.ts for why match history still shows the title instead);
-// `py`/`initials` exist purely so someone who only remembers "Syndra", not
-// her title 暗黑元首, can type "xindela" or "xdl" and still find 辛德拉.
+// runtime. Both the title (称号, e.g. 暗黑元首) and the real name (真名,
+// e.g. 辛德拉) stay searchable and visible: `display` combines them
+// ("暗黑元首 辛德拉") for the stored value and the option label, and
+// `py`/`initials` are pinyin for BOTH the title and the name (space-joined)
+// so someone who only remembers "Syndra" can type "xindela"/"xdl" while
+// someone who only remembers the title can still type "anheiyuanshou"/"ahys".
+// See champions.json's comment in sgp.ts for why match history still shows
+// only the title -- that's a separate file (championTitles.json) untouched
+// by any of this.
 const CHAMPIONS: ChampionEntry[] = Object.values(
   championSearchData as Record<string, ChampionEntry>
 ).sort((a, b) => a.py.localeCompare(b.py));
 
 function matches(entry: ChampionEntry, query: string): boolean {
   if (!query) return true;
-  // A query with any Chinese character matches against the Chinese name
-  // directly; anything else (Latin letters) is treated as pinyin, either
-  // full spelling or just initials ("xdl" for 辛德拉).
+  // A query with any Chinese character matches against the combined
+  // title+name string, so typing either "暗黑元首" or "辛德拉" finds this
+  // entry; anything else (Latin letters) is treated as pinyin, either full
+  // spelling or just initials, for either the title or the name.
   if (/[一-鿿]/.test(query)) {
-    return entry.name.includes(query);
+    return entry.display.includes(query);
   }
   return entry.py.includes(query) || entry.initials.includes(query);
 }
@@ -58,8 +70,8 @@ export default function ChampionCombobox({
     return list.slice(0, MAX_RESULTS);
   }, [value]);
 
-  function pick(name: string) {
-    onChange(name);
+  function pick(display: string) {
+    onChange(display);
     setOpen(false);
   }
 
@@ -88,7 +100,7 @@ export default function ChampionCombobox({
             setHighlight((h) => Math.max(h - 1, 0));
           } else if (e.key === "Enter") {
             e.preventDefault();
-            pick(results[highlight].name);
+            pick(results[highlight].display);
           } else if (e.key === "Escape") {
             setOpen(false);
           }
@@ -101,19 +113,19 @@ export default function ChampionCombobox({
         <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] py-1 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
           {results.map((c, i) => (
             <button
-              key={c.name}
+              key={c.display}
               type="button"
               // Fires before the input's onBlur/onClickOutside would close
               // the panel and steal focus, so the click actually lands.
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(c.name)}
+              onClick={() => pick(c.display)}
               className={`block w-full px-3 py-1.5 text-left text-sm transition ${
                 i === highlight
                   ? "bg-[var(--gold)]/15 text-[var(--gold)]"
                   : "text-[var(--foreground)] hover:bg-[var(--gold)]/10"
               }`}
             >
-              {c.name}
+              {c.display}
             </button>
           ))}
         </div>
