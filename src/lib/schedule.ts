@@ -23,11 +23,14 @@ export type Signup = {
   champions: string[];
   declaration: string;
   updatedAt: string;
-  // Wall-clock minutes since 00:00 on `date`. A booking can cross
-  // midnight -- see the effectiveEndMinute()/crossesMidnight() note in
-  // lib/time.ts. Both null when the member didn't set a booking window.
+  // Wall-clock minutes since 00:00 on `date`. Both null when the member
+  // didn't set a booking window.
   startMinute: number | null;
   endMinute: number | null;
+  // Explicit "结束时间是次日" flag the member sets in the form -- see the
+  // note in lib/time.ts on why this isn't inferred from the two fields
+  // above. Meaningless (always false) when no booking window is set.
+  endNextDay: boolean;
 };
 
 type SignupRow = {
@@ -45,6 +48,7 @@ type SignupRow = {
   updated_at: string | Date;
   start_minute: number | null;
   end_minute: number | null;
+  end_next_day: boolean;
 };
 
 function normalizeDateOnly(value: string | Date): string {
@@ -67,13 +71,14 @@ function toSignup(r: SignupRow): Signup {
     updatedAt: normalizeTimestamp(r.updated_at),
     startMinute: r.start_minute === null ? null : Number(r.start_minute),
     endMinute: r.end_minute === null ? null : Number(r.end_minute),
+    endNextDay: Boolean(r.end_next_day),
   };
 }
 
 export async function getSignupsForDate(date: string): Promise<Signup[]> {
   const { rows } = await sql<SignupRow>`
     SELECT signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3,
-           declaration, updated_at, start_minute, end_minute
+           declaration, updated_at, start_minute, end_minute, end_next_day
     FROM signups
     WHERE signup_date = ${date}
     ORDER BY updated_at ASC
@@ -106,6 +111,7 @@ export type SignupInput = {
   declaration: string;
   startMinute: number | null; // both null = no booking window set
   endMinute: number | null;
+  endNextDay: boolean; // ignored when startMinute/endMinute are null
 };
 
 export async function upsertSignup(input: SignupInput): Promise<void> {
@@ -113,11 +119,11 @@ export async function upsertSignup(input: SignupInput): Promise<void> {
   await sql`
     INSERT INTO signups (
       signup_date, member, position, champion_pick_1, champion_pick_2, champion_pick_3,
-      declaration, start_minute, end_minute, updated_at
+      declaration, start_minute, end_minute, end_next_day, updated_at
     )
     VALUES (
       ${input.date}, ${input.member}, ${input.position}, ${c1}, ${c2}, ${c3},
-      ${input.declaration}, ${input.startMinute}, ${input.endMinute}, now()
+      ${input.declaration}, ${input.startMinute}, ${input.endMinute}, ${input.endNextDay}, now()
     )
     ON CONFLICT (signup_date, member) DO UPDATE SET
       position = EXCLUDED.position,
@@ -127,6 +133,7 @@ export async function upsertSignup(input: SignupInput): Promise<void> {
       declaration = EXCLUDED.declaration,
       start_minute = EXCLUDED.start_minute,
       end_minute = EXCLUDED.end_minute,
+      end_next_day = EXCLUDED.end_next_day,
       updated_at = now()
   `;
 }

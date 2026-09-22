@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { addDays, formatShortDate } from "@/lib/date";
-import { crossesMidnight, effectiveEndMinute, formatMinutes, MINUTES_PER_DAY, TIME_STEP_MINUTES } from "@/lib/time";
+import { effectiveEndMinute, formatMinutes, MINUTES_PER_DAY, TIME_STEP_MINUTES } from "@/lib/time";
 
 type TimelineEntry = {
   member: string;
@@ -149,19 +149,24 @@ export default function ScheduleTimeline({
   /** The signups' own calendar date ("YYYY-MM-DD"), so a booking that
    * crosses midnight can be labeled with the actual next-day date. */
   date: string;
-  signups: { member: string; startMinute: number | null; endMinute: number | null }[];
+  signups: {
+    member: string;
+    startMinute: number | null;
+    endMinute: number | null;
+    endNextDay: boolean;
+  }[];
   photoByMember: Record<string, string>;
 }) {
   const entries: TimelineEntry[] = signups
     .filter(
-      (s): s is { member: string; startMinute: number; endMinute: number } =>
+      (s): s is { member: string; startMinute: number; endMinute: number; endNextDay: boolean } =>
         s.startMinute !== null && s.endMinute !== null && s.startMinute !== s.endMinute
     )
     .map((s) => ({
       member: s.member,
       startMinute: s.startMinute,
-      endMinute: effectiveEndMinute(s.startMinute, s.endMinute),
-      endLabel: crossesMidnight(s.startMinute, s.endMinute)
+      endMinute: effectiveEndMinute(s.endMinute, s.endNextDay),
+      endLabel: s.endNextDay
         ? `${formatShortDate(addDays(date, 1))} ${formatMinutes(s.endMinute)}`
         : formatMinutes(s.endMinute),
     }));

@@ -3,7 +3,7 @@ import Image from "next/image";
 import { isDbConfigured } from "@/lib/db";
 import { beijingDateString, getSignupDatesInRange, getSignupsForDate } from "@/lib/schedule";
 import { addDays, formatShortDate } from "@/lib/date";
-import { crossesMidnight, formatMinutes } from "@/lib/time";
+import { formatMinutes } from "@/lib/time";
 import { POSITION_LABEL, isPosition } from "@/lib/positions";
 import { roster } from "@/lib/roster";
 import { getCurrentMember } from "@/lib/session";
@@ -83,6 +83,7 @@ export default async function SchedulePage({
         declaration: s.declaration,
         startMinute: s.startMinute,
         endMinute: s.endMinute,
+        endNextDay: s.endNextDay,
       },
     ])
   );
@@ -170,7 +171,12 @@ export default async function SchedulePage({
           {dbReady ? (
             <ScheduleTimeline
               date={selectedDate}
-              signups={signups.map((s) => ({ member: s.member, startMinute: s.startMinute, endMinute: s.endMinute }))}
+              signups={signups.map((s) => ({
+                member: s.member,
+                startMinute: s.startMinute,
+                endMinute: s.endMinute,
+                endNextDay: s.endNextDay,
+              }))}
               photoByMember={photoByMember}
             />
           ) : null}
@@ -216,9 +222,7 @@ export default async function SchedulePage({
                         {s.startMinute !== null && s.endMinute !== null ? (
                           <Pill tone="good">
                             {formatMinutes(s.startMinute)}–
-                            {crossesMidnight(s.startMinute, s.endMinute)
-                              ? `${formatShortDate(addDays(selectedDate, 1))} `
-                              : ""}
+                            {s.endNextDay ? `${formatShortDate(addDays(selectedDate, 1))} ` : ""}
                             {formatMinutes(s.endMinute)}
                           </Pill>
                         ) : null}

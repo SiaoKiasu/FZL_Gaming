@@ -20,6 +20,7 @@ type ExistingSignup = {
   declaration: string;
   startMinute: number | null;
   endMinute: number | null;
+  endNextDay: boolean;
 };
 
 export default function ScheduleSignupForm({
@@ -41,6 +42,10 @@ export default function ScheduleSignupForm({
   const [declaration, setDeclaration] = useState(mine?.declaration ?? "");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  // Which calendar day the end time is on -- an explicit choice made by
+  // tapping the date pill below, never guessed from comparing the two
+  // times (two independent HH:MM pickers can't reliably tell you that).
+  const [endNextDay, setEndNextDay] = useState(mine?.endNextDay ?? false);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState("");
 
@@ -69,6 +74,7 @@ export default function ScheduleSignupForm({
           declaration,
           startTime: startTime || null,
           endTime: endTime || null,
+          endNextDay,
         }),
       });
       const data = await resp.json();
@@ -84,11 +90,6 @@ export default function ScheduleSignupForm({
       setStatus("error");
     }
   }
-
-  const startAsMinute = parseTimeString(startTime);
-  const endAsMinute = parseTimeString(endTime);
-  const crossesMidnight =
-    startAsMinute !== null && endAsMinute !== null && endAsMinute <= startAsMinute;
 
   const champInputClass =
     "w-full rounded-sm border border-[var(--border)] bg-[#0a0f1e] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--gold)]";
@@ -128,13 +129,12 @@ export default function ScheduleSignupForm({
 
       <div className="mt-5">
         <p className="mb-2 text-xs text-[var(--muted)]">预约时间段</p>
-        {/* The date sits right above each time box (not just as a hint
-            after the fact) so it's always clear which calendar day a time
-            belongs to -- the end box's date flips to the next day the
-            moment the end time is <= the start time. */}
+        {/* The date above each time box is the actual date selector --
+            tap it to flip the end time to the next day. Nothing here is
+            guessed by comparing the two times. */}
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-[var(--gold-soft)]">{formatShortDate(date)}</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-[var(--muted)]">{formatShortDate(date)}</span>
             <input
               type="time"
               step={300}
@@ -144,12 +144,21 @@ export default function ScheduleSignupForm({
               onBlur={(e) => snapTime(e.target.value, setStartTime)}
               className={champInputClass + " w-32"}
             />
-          </label>
+          </div>
           <span className="pb-2.5 text-sm text-[var(--muted)]">至</span>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-[var(--gold-soft)]">
-              {formatShortDate(crossesMidnight ? addDays(date, 1) : date)}
-            </span>
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => setEndNextDay((v) => !v)}
+              className={`self-start rounded-sm border px-2 py-0.5 text-xs font-medium transition ${
+                endNextDay
+                  ? "border-[var(--gold)] bg-[var(--gold)] text-[#0a0f1e]"
+                  : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
+              }`}
+              title="点一下切换到次日"
+            >
+              {formatShortDate(endNextDay ? addDays(date, 1) : date)}
+            </button>
             <input
               type="time"
               step={300}
@@ -159,8 +168,9 @@ export default function ScheduleSignupForm({
               onBlur={(e) => snapTime(e.target.value, setEndTime)}
               className={champInputClass + " w-32"}
             />
-          </label>
+          </div>
         </div>
+        <p className="mt-2 text-[11px] text-[var(--muted)]">结束时间是第二天的话，点一下上面的日期切换。</p>
         <datalist id="fzl-time-options">
           {TIME_CANDIDATES.map((t) => (
             <option key={t} value={t} />

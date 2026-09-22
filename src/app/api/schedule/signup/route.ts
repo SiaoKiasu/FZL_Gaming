@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求格式不对" }, { status: 400 });
   }
 
-  const { date, position, champions, declaration, startTime, endTime } =
+  const { date, position, champions, declaration, startTime, endTime, endNextDay } =
     (body ?? {}) as Record<string, unknown>;
 
   if (typeof date !== "string" || !DATE_RE.test(date)) {
@@ -54,12 +54,12 @@ export async function POST(req: Request) {
   }
 
   // Booking window is optional -- either both blank (no window set) or
-  // both a valid "HH:MM" 5-minute-aligned string. start > end is allowed
-  // and means the session runs past midnight into the next day (e.g.
-  // 23:00 -> 01:00); only start === end is rejected, since that's
-  // ambiguous (zero-length vs. a full 24 hours) rather than a real window.
+  // both a valid "HH:MM" 5-minute-aligned string. Whether the end time is
+  // on the next day is the separate, explicit `endNextDay` flag the form
+  // sends (a checkbox) -- not inferred from comparing the two times.
   const startBlank = startTime === undefined || startTime === null || startTime === "";
   const endBlank = endTime === undefined || endTime === null || endTime === "";
+  const crossesMidnight = endNextDay === true;
   let startMinute: number | null = null;
   let endMinute: number | null = null;
   if (!startBlank || !endBlank) {
@@ -74,8 +74,14 @@ export async function POST(req: Request) {
     if (s === null || e === null || !isValidMinute(s) || !isValidMinute(e)) {
       return NextResponse.json({ error: "时间格式不对，需要 5 分钟为单位" }, { status: 400 });
     }
-    if (s === e) {
-      return NextResponse.json({ error: "开始和结束时间不能一样" }, { status: 400 });
+    // Same-day booking still needs start < end. A next-day end time has no
+    // such constraint -- 20:00 today to 03:00 tomorrow, or even 20:00
+    // today to 20:00 tomorrow (a full 24 hours), are both fine.
+    if (!crossesMidnight && s >= e) {
+      return NextResponse.json(
+        { error: "结束时间要晚于开始时间（跨天的话勾选「次日」）" },
+        { status: 400 }
+      );
     }
     startMinute = s;
     endMinute = e;
@@ -90,6 +96,7 @@ export async function POST(req: Request) {
       declaration: declaration.trim(),
       startMinute,
       endMinute,
+      endNextDay: startMinute !== null && endMinute !== null ? crossesMidnight : false,
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

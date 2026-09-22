@@ -4,11 +4,13 @@
 //
 // Both startMinute and endMinute are wall-clock minutes since 00:00 on the
 // signup's date (5-minute granularity, 0-1435). A booking can cross
-// midnight: when endMinute <= startMinute, the session is understood to
-// run past 00:00 into the next calendar day. Use effectiveEndMinute() /
-// crossesMidnight() below instead of comparing the raw fields directly
-// whenever you need continuous range math (duration, overlap, timeline
-// position) rather than the literal clock time.
+// midnight -- whether it does is a separate, explicit boolean the member
+// sets themselves (a "次日" checkbox in the form, stored as endNextDay),
+// never inferred by comparing startMinute/endMinute: two independent
+// HH:MM pickers with no idea which day they're on can't reliably tell you
+// that, and guessing from "end <= start" was more confusing than helpful.
+// Use effectiveEndMinute() below for continuous range math (duration,
+// overlap, timeline position) whenever endNextDay is true.
 
 export const TIME_STEP_MINUTES = 5;
 export const MINUTES_PER_DAY = 24 * 60;
@@ -41,15 +43,10 @@ export function roundToStep(m: number): number {
   return Math.min(Math.max(rounded, 0), MAX_MINUTE);
 }
 
-/** Extend endMinute past MINUTES_PER_DAY when a booking crosses midnight,
- * so callers can do continuous range/overlap math (e.g. 23:00 -> 01:00
- * becomes 1380 -> 1500) instead of the raw wall-clock value wrapping back
- * to something smaller than startMinute. */
-export function effectiveEndMinute(startMinute: number, endMinute: number): number {
-  return endMinute <= startMinute ? endMinute + MINUTES_PER_DAY : endMinute;
-}
-
-/** True when a booking's end time falls on the day after its signup date. */
-export function crossesMidnight(startMinute: number, endMinute: number): boolean {
-  return endMinute <= startMinute;
+/** Extend endMinute past MINUTES_PER_DAY when the booking's end time is on
+ * the day after its signup date (e.g. 23:00 -> 01:00 becomes 1380 -> 1500),
+ * so callers can do continuous range/overlap math instead of the raw
+ * wall-clock value looking smaller than startMinute for no obvious reason. */
+export function effectiveEndMinute(endMinute: number, endNextDay: boolean): number {
+  return endNextDay ? endMinute + MINUTES_PER_DAY : endMinute;
 }
