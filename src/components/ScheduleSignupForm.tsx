@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { POSITIONS, POSITION_LABEL } from "@/lib/positions";
+import { addDays, formatShortDate } from "@/lib/date";
 import { formatMinutes, MAX_MINUTE, parseTimeString, roundToStep } from "@/lib/time";
 import ChampionCombobox from "@/components/ChampionCombobox";
 
@@ -84,6 +85,11 @@ export default function ScheduleSignupForm({
     }
   }
 
+  const startAsMinute = parseTimeString(startTime);
+  const endAsMinute = parseTimeString(endTime);
+  const crossesMidnight =
+    startAsMinute !== null && endAsMinute !== null && endAsMinute <= startAsMinute;
+
   const champInputClass =
     "w-full rounded-sm border border-[var(--border)] bg-[#0a0f1e] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--gold)]";
 
@@ -153,6 +159,15 @@ export default function ScheduleSignupForm({
             <option key={t} value={t} />
           ))}
         </datalist>
+        {crossesMidnight ? (
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            结束时间比开始时间早，会记为到{" "}
+            <span className="text-[var(--gold-soft)]">
+              {formatShortDate(addDays(date, 1))} {endTime}
+            </span>
+            。
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">

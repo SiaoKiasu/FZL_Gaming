@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { isDbConfigured } from "@/lib/db";
 import { beijingDateString, getSignupDatesInRange, getSignupsForDate } from "@/lib/schedule";
+import { addDays, formatShortDate } from "@/lib/date";
 import { crossesMidnight, formatMinutes } from "@/lib/time";
 import { POSITION_LABEL, isPosition } from "@/lib/positions";
 import { roster } from "@/lib/roster";
@@ -168,6 +169,7 @@ export default async function SchedulePage({
         <div className="space-y-6">
           {dbReady ? (
             <ScheduleTimeline
+              date={selectedDate}
               signups={signups.map((s) => ({ member: s.member, startMinute: s.startMinute, endMinute: s.endMinute }))}
               photoByMember={photoByMember}
             />
@@ -214,7 +216,9 @@ export default async function SchedulePage({
                         {s.startMinute !== null && s.endMinute !== null ? (
                           <Pill tone="good">
                             {formatMinutes(s.startMinute)}–
-                            {crossesMidnight(s.startMinute, s.endMinute) ? "次日" : ""}
+                            {crossesMidnight(s.startMinute, s.endMinute)
+                              ? `${formatShortDate(addDays(selectedDate, 1))} `
+                              : ""}
                             {formatMinutes(s.endMinute)}
                           </Pill>
                         ) : null}

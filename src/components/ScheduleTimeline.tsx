@@ -1,5 +1,6 @@
 import Image from "next/image";
-import { effectiveEndMinute, formatMinutes, MINUTES_PER_DAY, TIME_STEP_MINUTES } from "@/lib/time";
+import { addDays, formatShortDate } from "@/lib/date";
+import { crossesMidnight, effectiveEndMinute, formatMinutes, MINUTES_PER_DAY, TIME_STEP_MINUTES } from "@/lib/time";
 
 type TimelineEntry = {
   member: string;
@@ -12,7 +13,10 @@ type TimelineEntry = {
   // startMinute. Recover the real end-of-day clock time for display with
   // `endMinute % MINUTES_PER_DAY`.
   endMinute: number;
-  crossesMidnight: boolean;
+  // Display string for the end time -- just "HH:MM", or "M月D日 HH:MM"
+  // when the booking crosses midnight, so it's never ambiguous which day
+  // it lands on.
+  endLabel: string;
 };
 
 // Two days' worth of 5-minute buckets so a booking that crosses midnight
@@ -26,9 +30,11 @@ function pct(minute: number, rangeStart: number, rangeSpan: number) {
 }
 
 /** Render an "effective" minute (possibly past MINUTES_PER_DAY, for a
- * window that crosses midnight) back to its real HH:MM clock time. */
-function formatClock(m: number) {
-  return formatMinutes(m % MINUTES_PER_DAY);
+ * window that crosses midnight) back to its real clock time, prefixed with
+ * the actual next-day date once it's past midnight. */
+function formatClock(m: number, date: string) {
+  const clock = formatMinutes(m % MINUTES_PER_DAY);
+  return m >= MINUTES_PER_DAY ? `${formatShortDate(addDays(date, 1))} ${clock}` : clock;
 }
 
 /** Only the evening (or whenever) window people actually booked has anything
@@ -112,7 +118,7 @@ function BookingBar({
 }) {
   const left = pct(entry.startMinute, rangeStart, rangeSpan);
   const width = Math.max(pct(entry.endMinute, rangeStart, rangeSpan) - left, 2);
-  const label = `${formatMinutes(entry.startMinute)}–${entry.crossesMidnight ? "次日" : ""}${formatClock(entry.endMinute)}`;
+  const label = `${formatMinutes(entry.startMinute)}–${entry.endLabel}`;
   // Keep the time-range text outside the highlighted block itself so it's
   // never clipped by a narrow bar -- flip it to the other side once the
   // bar runs past ~70% of the track so it doesn't fall off the right edge.
@@ -136,9 +142,13 @@ function BookingBar({
 }
 
 export default function ScheduleTimeline({
+  date,
   signups,
   photoByMember,
 }: {
+  /** The signups' own calendar date ("YYYY-MM-DD"), so a booking that
+   * crosses midnight can be labeled with the actual next-day date. */
+  date: string;
   signups: { member: string; startMinute: number | null; endMinute: number | null }[];
   photoByMember: Record<string, string>;
 }) {
@@ -151,7 +161,9 @@ export default function ScheduleTimeline({
       member: s.member,
       startMinute: s.startMinute,
       endMinute: effectiveEndMinute(s.startMinute, s.endMinute),
-      crossesMidnight: s.endMinute <= s.startMinute,
+      endLabel: crossesMidnight(s.startMinute, s.endMinute)
+        ? `${formatShortDate(addDays(date, 1))} ${formatMinutes(s.endMinute)}`
+        : formatMinutes(s.endMinute),
     }));
 
   if (entries.length === 0) {
@@ -175,7 +187,7 @@ export default function ScheduleTimeline({
         </p>
         {peak ? (
           <span className="rounded-full border border-[var(--gold)]/50 bg-[var(--gold)]/10 px-3 py-1 text-xs font-semibold text-[var(--gold)]">
-            人最多的时段：{formatClock(peak.startMinute)}–{formatClock(peak.endMinute)} · {maxCount} 人同时在线
+            人最多的时段：{formatClock(peak.startMinute, date)}–{formatClock(peak.endMinute, date)} · {maxCount} 人同时在线
           </span>
         ) : null}
       </div>
@@ -240,7 +252,7 @@ export default function ScheduleTimeline({
                     width: `${pct(seg.endMinute, rangeStart, rangeSpan) - pct(seg.startMinute, rangeStart, rangeSpan)}%`,
                     backgroundColor: `rgba(231, 182, 85, ${alpha})`,
                   }}
-                  title={`${formatClock(seg.startMinute)}–${formatClock(seg.endMinute)} · ${seg.count} 人`}
+                  title={`${formatClock(seg.startMinute, date)}–${formatClock(seg.endMinute, date)} · ${seg.count} 人`}
                 />
               );
             })}
