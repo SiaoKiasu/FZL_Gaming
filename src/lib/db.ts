@@ -330,11 +330,17 @@ function groupMatches(rows: MatchRow[]): StoredMatch[] {
   return order.map((id) => byGame.get(id)!);
 }
 
-export async function listMatches(limit = 100): Promise<StoredMatch[]> {
-  // One round trip: join match_players onto the most recent `limit` matches.
+export async function listMatches(
+  limit = 20,
+  offset = 0,
+  queueName?: string | null
+): Promise<StoredMatch[]> {
+  // One round trip: join match_players onto one page of matches (most
+  // recent first, LIMIT/OFFSET below), optionally narrowed to one queue.
   // (Avoids passing an array param — @vercel/postgres's `sql` tag only
   // accepts primitive values, so the column list is spelled out below
   // rather than shared via a helper.)
+  const queue = queueName ?? null;
   const { rows } = await sql<MatchRow>`
     SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count, m.team_stats,
            mp.member, mp.player_name, mp.team_id, mp.position, mp.champion, mp.champion_id,
@@ -347,13 +353,37 @@ export async function listMatches(limit = 100): Promise<StoredMatch[]> {
     FROM (
       SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count, team_stats
       FROM matches
+      WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
       ORDER BY game_creation_ms DESC
-      LIMIT ${limit}
+      LIMIT ${limit} OFFSET ${offset}
     ) m
     JOIN match_players mp ON mp.game_id = m.game_id
     ORDER BY m.game_creation_ms DESC, mp.team_id ASC
   `;
   return groupMatches(rows);
+}
+
+// Total match count for the same optional queue filter, so the page knows
+// how many pages to render without pulling every row down first.
+export async function countMatches(queueName?: string | null): Promise<number> {
+  const queue = queueName ?? null;
+  const { rows } = await sql<{ count: string }>`
+    SELECT COUNT(*)::text AS count
+    FROM matches
+    WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
+  `;
+  return Number(rows[0]?.count ?? 0);
+}
+
+// Distinct queue names that actually have synced matches, for the filter
+// pills -- computed from the whole table, not just the current page, so a
+// mode doesn't disappear from the pills just because it has no games on
+// page 1.
+export async function listMatchQueues(): Promise<string[]> {
+  const { rows } = await sql<{ queue_name: string }>`
+    SELECT DISTINCT queue_name FROM matches
+  `;
+  return rows.map((r) => r.queue_name);
 }
 
 export async function getMatch(gameId: string): Promise<StoredMatch | null> {
