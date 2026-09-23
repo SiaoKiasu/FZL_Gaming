@@ -41,6 +41,19 @@ export async function getIncompleteGameIds(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.game_id));
 }
 
+// The "already covered" stop-set for a refreshAll backfill, same role as
+// getKnownGameIds() for a normal sync -- see FetchOptions.knownGameIds. A
+// whole game's player rows are always (re)written together (insertGames
+// batches per game), so any one row having rating_dims set means the
+// whole game was already re-graded under the current rating version and
+// can be skipped on the next resumed batch.
+export async function getRatedGameIds(): Promise<Set<string>> {
+  const { rows } = await sql<{ game_id: string }>`
+    SELECT DISTINCT game_id FROM match_players WHERE rating_dims IS NOT NULL
+  `;
+  return new Set(rows.map((r) => r.game_id));
+}
+
 // One player row's column list, in the exact order both the multi-row
 // INSERT and its ON CONFLICT UPDATE below rely on.
 const MATCH_PLAYER_COLUMNS = [

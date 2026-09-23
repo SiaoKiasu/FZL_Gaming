@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isDbConfigured, getKnownGameIds, getIncompleteGameIds, insertGames } from "@/lib/db";
+import { isDbConfigured, getKnownGameIds, getIncompleteGameIds, getRatedGameIds, insertGames } from "@/lib/db";
 import { SgpAuthError, syncAllRosterGames, applyRatings } from "@/lib/sgp";
 import { loadBaseline, saveZStats } from "@/lib/ratingBaseline";
 import { PRIOR_BASELINE, computeZStats, fitLiveBaseline, mergeBaselines, type PlayerMetrics } from "@/lib/rating";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+// Stop paging through SGP once this much of the request has elapsed,
+// leaving headroom under Vercel's 60s ceiling for the DB insert + baseline
+// recompute that happen afterward. Once enough games pile up (routine
+// sync) or a refreshAll backfill has a big backlog of pre-v3 games, one
+// call can't always finish everyone -- see the `done` field below and
+// FetchOptions.deadlineMs in sgp.ts.
+const SYNC_TIME_BUDGET_MS = 45_000;
 
 // POST { token, refreshAll? } -> fetches everyone's recent ranked history
 // with that one SGP token, keeps only 车队 games (>= MIN_TEAM_MEMBERS
 // roster members on a side) from SYNC_SINCE_MS onward, and stores any not
-// already in the DB.
+// already covered.
 //
 // Normal syncs only write the genuinely new games, PLUS any already-known
 // game that's missing player rows (getIncompleteGameIds -- a leftover from
@@ -22,10 +29,22 @@ export const maxDuration = 60;
 // action needed. insertGames's upsert makes re-writing an existing game
 // harmless either way, but doing that for every already-known game on
 // every sync would mean dozens of extra round trips to Postgres each time,
-// risking this route's 60s timeout for no benefit on a day-to-day sync --
-// so a fully-stored known game is still skipped. refreshAll opts into that
-// slower full rewrite of everything, for the one-off case where a
-// schema/rating change adds fields that already-synced games are missing.
+// for no benefit on a day-to-day sync -- so a fully-stored known game is
+// still skipped.
+//
+// refreshAll opts into re-grading already-synced games too, for the
+// one-off case where a rating change (like v3) adds fields older games
+// are missing. It uses getRatedGameIds() as its own stop-set instead of
+// getKnownGameIds(), so it still skips (and doesn't re-download) games
+// already re-graded under the current rating version -- it isn't a full
+// unconditional rescan of everything every single call.
+//
+// Either mode can still have more left to do than fits in one request
+// (see SYNC_TIME_BUDGET_MS) -- the response's `done: false` means exactly
+// that, and the caller (MatchSyncForm) just POSTs again with the same
+// token to continue; already-stored/already-graded games from this call
+// make the next call's stop-set bigger, so repeating the same request
+// naturally makes progress each time instead of redoing work.
 //
 // The token is a ~10-minute-lived bearer credential for the pasting user's
 // own LoL account (see lol_ranked_sync/README.md). It is used in-memory for
@@ -52,21 +71,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "缺少 token" }, { status: 400 });
   }
 
+  const requestStart = Date.now();
   try {
-    // Fetch what's already stored BEFORE scanning SGP, so a routine sync
-    // can stop paging through a player's history as soon as it reaches a
-    // game that's already fully synced -- otherwise every run re-scans
-    // all the way back to SYNC_SINCE_MS regardless of how much of that
-    // window was already covered by an earlier sync, which is what was
-    // pushing this route past its 60s budget (Vercel Runtime Timeout)
-    // once enough games had piled up over the month. Known-but-incomplete
-    // games are deliberately left OUT of the stop-set so the existing
-    // self-heal-on-next-sync repair path keeps working.
-    const [known, incomplete] = await Promise.all([getKnownGameIds(), getIncompleteGameIds()]);
+    // Fetch what's already covered BEFORE scanning SGP, so a run can stop
+    // paging through a player's history as soon as it reaches a game
+    // that's already covered -- otherwise every run re-scans all the way
+    // back to SYNC_SINCE_MS regardless of how much of that window was
+    // already handled by an earlier run, which is what was pushing this
+    // route past its 60s budget (Vercel Runtime Timeout) once enough games
+    // had piled up. Known-but-incomplete games are deliberately left OUT
+    // of the normal-sync stop-set so the existing self-heal-on-next-sync
+    // repair path keeps working.
+    const [known, incomplete, rated] = await Promise.all([
+      getKnownGameIds(),
+      getIncompleteGameIds(),
+      refreshAll ? getRatedGameIds() : Promise.resolve(new Set<string>()),
+    ]);
     const fullyKnown = refreshAll
-      ? undefined
+      ? rated
       : new Set([...known].filter((id) => !incomplete.has(id)));
-    const { games, perPlayer } = await syncAllRosterGames(token, { knownGameIds: fullyKnown });
+    const { games, perPlayer, truncated } = await syncAllRosterGames(token, {
+      knownGameIds: fullyKnown,
+      deadlineMs: requestStart + SYNC_TIME_BUDGET_MS,
+    });
     const newGames = games.filter((g) => !known.has(g.gameId));
     const repairedGames = games.filter((g) => known.has(g.gameId) && incomplete.has(g.gameId));
     const toStore = refreshAll ? games : [...newGames, ...repairedGames];
@@ -93,6 +120,10 @@ export async function POST(req: NextRequest) {
       totalGames: known.size + newGames.length,
       refreshedGames: refreshAll ? games.length : 0,
       perPlayer,
+      // false means there's more left than fit in this call's time budget
+      // -- the frontend re-POSTs with the same token to pick up where this
+      // left off (see MatchSyncForm).
+      done: !truncated,
     });
   } catch (err) {
     if (err instanceof SgpAuthError) {

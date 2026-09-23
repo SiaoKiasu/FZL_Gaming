@@ -19,27 +19,72 @@ export default function MatchSyncForm() {
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState("");
+  // Set while a multi-round refreshAll backfill is still in progress --
+  // see the loop below. Empty once it's done (or it never needed a second
+  // round in the first place).
+  const [progressNote, setProgressNote] = useState("");
 
+  // 一次 /api/matches/sync 调用最多只处理 45 秒内能翻完的量（Vercel 60 秒
+  // 硬顶，留点余量给写库），旧对局攒多了一次翻不完很正常。所以这里改成
+  // 循环调用：只要后端说 done: false 就带着同一个 token 接着请求，每轮的
+  // 数字累加起来展示，直到翻完或者 token 过期（10 分钟）为止。
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!token.trim()) return;
     setStatus("loading");
     setError("");
+    setProgressNote("");
+    const usedToken = token.trim();
+    setToken(""); // never keep the token around once it's been used
+
+    const totals: SyncResult = {
+      scannedGames: 0,
+      newGames: 0,
+      repairedGames: 0,
+      totalGames: 0,
+      refreshedGames: 0,
+      perPlayer: [],
+    };
+
     try {
-      const resp = await fetch("/api/matches/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: token.trim(), refreshAll }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        setError(data.error ?? "同步失败");
-        setStatus("error");
-        return;
+      let done = false;
+      let round = 0;
+      // 真出现这么多轮，多半是 10 分钟 token 已经过期了，会在下面请求失败
+      // 那里被拦下来提示重新贴 token，不会一直空转。
+      const MAX_ROUNDS = 40;
+      while (!done && round < MAX_ROUNDS) {
+        round++;
+        const resp = await fetch("/api/matches/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: usedToken, refreshAll }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          setError(data.error ?? "同步失败");
+          setStatus("error");
+          return;
+        }
+        totals.scannedGames += data.scannedGames;
+        totals.newGames += data.newGames;
+        totals.repairedGames += data.repairedGames;
+        totals.refreshedGames += data.refreshedGames;
+        totals.totalGames = data.totalGames;
+        for (const p of data.perPlayer as SyncResult["perPlayer"]) {
+          const existing = totals.perPlayer.find((x) => x.name === p.name);
+          if (existing) {
+            existing.scanned += p.scanned;
+            existing.found += p.found;
+          } else {
+            totals.perPlayer.push({ ...p });
+          }
+        }
+        done = Boolean(data.done);
+        setProgressNote(done ? "" : `分批处理中，已经刷新 ${totals.refreshedGames} 场旧对局，继续翻更早的…`);
       }
-      setResult(data);
+      setResult(totals);
       setStatus("done");
-      setToken(""); // never keep the token around once it's been used
+      setProgressNote("");
       router.refresh();
     } catch {
       setError("网络错误，请重试");
@@ -79,6 +124,10 @@ export default function MatchSyncForm() {
         />
         同时刷新已同步过的旧对局（较慢；只有战绩详情页加了新字段后想给旧对局补数据时才需要勾）
       </label>
+
+      {status === "loading" && progressNote ? (
+        <p className="mt-3 text-sm text-[var(--muted)]">{progressNote}</p>
+      ) : null}
 
       {status === "error" ? (
         <p className="mt-3 text-sm text-[var(--status-critical)]">{error}</p>

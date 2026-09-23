@@ -108,13 +108,23 @@ export type FetchOptions = {
   maxScan?: number;
   sinceMs?: number;
   minTeamMembers?: number;
-  // Games already stored in the DB (from a prior successful sync). When
-  // set, pagination for a player stops as soon as it hits one of these --
-  // everything older was covered by a previous sync, so there's no need
-  // to keep re-scanning all the way back to sinceMs every single run.
-  // Omit (or pass an empty set, e.g. for refreshAll) to scan the full
-  // sinceMs window regardless of what's already stored.
+  // Games already covered by a prior run -- for a normal sync, games
+  // already stored in the DB; for a refreshAll backfill, games that
+  // already have v3 rating data. Either way, pagination for a player stops
+  // as soon as it hits one of these, since everything older was covered
+  // by a previous run and there's no need to keep re-scanning all the way
+  // back to sinceMs every single call. Omit (or pass an empty set) to scan
+  // the full sinceMs window regardless of what's already covered.
   knownGameIds?: Set<string>;
+  // Wall-clock deadline (Date.now() + budget) for the whole multi-player
+  // scan. Vercel's request has a hard 60s ceiling (maxDuration below) --
+  // once enough games pile up, scanning everyone's full history in one
+  // call blows past that and the whole request 504s with nothing saved.
+  // Past this deadline, fetchPlayerRosterGames/syncAllRosterGames stop
+  // starting new page fetches and report back `truncated: true` instead,
+  // so the caller can store what was found and call again to pick up
+  // where this call left off (see matches/sync/route.ts + MatchSyncForm).
+  deadlineMs?: number;
 };
 
 /** Page through one player's ranked history, keeping only 车队 games
@@ -123,18 +133,24 @@ export async function fetchPlayerRosterGames(
   token: string,
   puuid: string,
   opts: FetchOptions = {}
-): Promise<{ games: Map<string, Json>; scanned: number }> {
+): Promise<{ games: Map<string, Json>; scanned: number; truncated: boolean }> {
   const want = opts.want ?? WANT_DEFAULT;
   const maxScan = opts.maxScan ?? MAX_SCAN_DEFAULT;
   const sinceMs = opts.sinceMs ?? SYNC_SINCE_MS;
   const minTeamMembers = opts.minTeamMembers ?? MIN_TEAM_MEMBERS;
+  const deadlineMs = opts.deadlineMs ?? Infinity;
 
   const knownGameIds = opts.knownGameIds;
   const got = new Map<string, Json>();
   let start = 0;
   let firstPage = true;
   let caughtUpToKnown = false;
+  let truncated = false;
   while (got.size < want && start < maxScan) {
+    if (Date.now() >= deadlineMs) {
+      truncated = true;
+      break;
+    }
     if (!firstPage) await sleep(REQUEST_GAP_MS);
     firstPage = false;
     const games = await fetchPage(token, puuid, start);
@@ -166,7 +182,7 @@ export async function fetchPlayerRosterGames(
     if (games.length < PAGE) break;
     if (caughtUpToKnown) break;
   }
-  return { games: got, scanned: start };
+  return { games: got, scanned: start, truncated };
 }
 
 export type PlayerRow = {
@@ -430,17 +446,35 @@ export function buildGameRecord(g: Json): GameRecord {
   };
 }
 
-/** Sync all 8 roster members' recent ranked history with one token. */
+/** Sync all 8 roster members' recent ranked history with one token.
+ * Stops early once opts.deadlineMs passes -- some roster members may not
+ * get scanned at all this call -- and reports `truncated: true` so the
+ * caller knows to call again for the rest (see FetchOptions.deadlineMs). */
 export async function syncAllRosterGames(
   token: string,
   opts: FetchOptions = {}
-): Promise<{ games: GameRecord[]; perPlayer: { name: string; scanned: number; found: number }[] }> {
+): Promise<{
+  games: GameRecord[];
+  perPlayer: { name: string; scanned: number; found: number }[];
+  truncated: boolean;
+}> {
   const allGames = new Map<string, Json>();
   const perPlayer: { name: string; scanned: number; found: number }[] = [];
+  const deadlineMs = opts.deadlineMs ?? Infinity;
+  let truncated = false;
 
   for (const [i, member] of matchesRoster.entries()) {
+    if (Date.now() >= deadlineMs) {
+      truncated = true;
+      break;
+    }
     if (i > 0) await sleep(REQUEST_GAP_MS);
-    const { games, scanned } = await fetchPlayerRosterGames(token, member.puuid, opts);
+    const { games, scanned, truncated: memberTruncated } = await fetchPlayerRosterGames(
+      token,
+      member.puuid,
+      opts
+    );
+    if (memberTruncated) truncated = true;
     let foundNew = 0;
     for (const [gameId, g] of games) {
       if (!allGames.has(gameId)) {
@@ -454,5 +488,5 @@ export async function syncAllRosterGames(
 
   const games = Array.from(allGames.values()).map(buildGameRecord);
   games.sort((a, b) => b.gameCreationMs - a.gameCreationMs);
-  return { games, perPlayer };
+  return { games, perPlayer, truncated };
 }
