@@ -66,7 +66,8 @@ curl -X POST https://你的域名/api/auth/admin/set-password \
 ## 数据库迁移
 
 `db/` 下的 `schema*.sql` 各跑一次即可（Vercel → Storage → Postgres → Query）。
-按文件名对应：视频功能是 `db/schema_video.sql`，账号是 `db/schema_auth.sql`。
+按文件名对应：视频功能是 `db/schema_video.sql`，账号是 `db/schema_auth.sql`，
+评分 v3 是 `db/schema_rating_v3.sql`（跑完后在战绩页勾「刷新旧对局」同步一次，历史对局才会按新规则重算）。
 
 `db/seed_*.sql` 是本地调试假数据，**不要在生产库跑**。
 
@@ -77,4 +78,18 @@ curl -X POST https://你的域名/api/auth/admin/set-password \
 - `src/lib/roster.ts` — 选手数据（昵称 / 位置 / 英雄池 / 头像）
 - `src/lib/cos.ts` — 腾讯云 COS 签名（视频存储在香港节点，见文件头注释）
 - `src/lib/session.ts` — 签名 cookie 会话，`getCurrentMember()` 是全站唯一的身份来源
+- `src/lib/rating.ts` — 对局评分 v3（纯函数）；`ratingBaseline.ts` 负责先验 + 库内实时分位数合成基线
+- `src/data/rating_v3_prior.json` — 随代码发布的评分先验基线，由 `lol_ranked_sync/pull_all.py` 拉取的历史对局拟合
 - `public/roster` — 选手头像
+
+## 对局评分（v3）
+
+规则骨架照掌盟 MVP/SVP 评选说明：**分模式 → 识别职责 → 按职责配权 → 与同职责历史分布横向对比**。
+
+- 峡谷排位按位置（上/野/中/下/辅）各一套权重；海克斯大乱斗没有分路，按英雄类型 + 出装识别为 坦克/战士/输出/辅助。
+- 每个指标先按每分钟归一，再对该职责的历史分布做稳健 z 分数（中位数 / IQR）。基线 = 代码内置先验（1272 局排位 + 4620 局大乱斗）⊕ 库里实际对局的分位数，按样本量加权，每次同步自动更新。
+- 分数 10 ± 3、封顶 20：10 是同职责平均水平，15 以上是打出来了。
+- MVP（胜方）/ SVP（败方）按「相对同职责、同胜负分布的残差」选，而不是直接选最高分——胜方分数本来就被胜利抬高，且下路比辅助抬得更多，直接选最高会把 MVP 系统性推给下路。
+- 出装会微调权重：比同职责中位更坦的出装，承伤权重上调、输出下调，最多 ±8%。
+
+改权重必须同时改 `lol_ranked_sync/rating.py`，两边有逐人一致性测试。

@@ -12,6 +12,7 @@ import {
   summonerSpellIconUrl,
 } from "@/lib/ddragon";
 import Pill from "@/components/Pill";
+import { dimsForGroup } from "@/lib/rating";
 
 export const dynamic = "force-dynamic";
 
@@ -184,11 +185,16 @@ function HealBreakdown({ p, maxTotal }: { p: StoredPlayer; maxTotal: number }) {
 type HexAxis = {
   label: string;
   playerRatio: number;
-  teamRatio: number;
+  /** null = no comparison polygon for this axis set (e.g. Mayhem has no lane opponent). */
+  teamRatio: number | null;
   playerValue: number;
-  teamValue: number;
+  teamValue: number | null;
   format: (n: number) => string;
 };
+
+type HexLegendText = { player: string; compare: string | null; note: string };
+
+const RAW_LEGEND: HexLegendText = { player: "本人", compare: "本队平均", note: "· 形状按本局平均换算，数值为实际数据" };
 
 function avg(values: number[]): number {
   return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
@@ -249,6 +255,53 @@ function buildHexAxes(p: StoredPlayer, team: StoredPlayer[], allPlayers: StoredP
   ];
 }
 
+// ---- v3 rating radar --------------------------------------------------
+// When a player carries v3 dimension z-scores (rating_dims), the hexagon is
+// drawn from those instead of the raw-stat/game-average version above: each
+// axis is one dimension the player's ROLE is graded on, the dashed ring is
+// the role's historical average (z = 0), and the blue polygon is the lane
+// opponent (same position, other team) -- the comparison 掌盟's rules are
+// built around. Mayhem has no lane opponent, so only the player is drawn.
+// Displayed values are the share of same-role players this z beats
+// (normal CDF), which is a real statistic, not a made-up percentage.
+function normalCdf(z: number): number {
+  // Abramowitz–Stegun 7.1.26, |error| < 1.5e-7 -- plenty for a percentage.
+  const t = 1 / (1 + 0.3275911 * Math.abs(z));
+  const poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+  const erf = 1 - poly * Math.exp(-z * z);
+  return 0.5 * (1 + (z < 0 ? -erf : erf));
+}
+
+// z = +2 fills the radius; z = 0 sits on the dashed ring (ratio 100).
+const zToRatio = (z: number) => Math.max(0, Math.min(200, 100 + z * 50));
+
+function buildV3Axes(p: StoredPlayer, allPlayers: StoredPlayer[]): HexAxis[] | null {
+  if (!p.ratingDims || !p.ratingGroup) return null;
+  const dims = dimsForGroup(p.ratingGroup);
+  if (dims.length < 3) return null;
+  const isSr = p.ratingGroup.startsWith("sr|");
+  const rivals = isSr
+    ? allPlayers.filter((x) => x.teamId !== p.teamId && x.position === p.position && x.ratingDims)
+    : [];
+  const rival = rivals.length === 1 ? rivals[0] : null;
+  const pctBeaten = (z: number) => normalCdf(z) * 100;
+  return dims.map((d) => {
+    const z = p.ratingDims?.[d] ?? 0;
+    const rz = rival?.ratingDims?.[d];
+    return {
+      label: d,
+      playerRatio: zToRatio(z),
+      teamRatio: rz === undefined ? null : zToRatio(rz),
+      playerValue: pctBeaten(z),
+      teamValue: rz === undefined ? null : pctBeaten(rz),
+      format: (n: number) => `超${Math.round(n)}%`,
+    };
+  });
+}
+
+const V3_LEGEND_SR: HexLegendText = { player: "本人", compare: "对位", note: "· 虚线圈 = 同位置历史平均；数值 = 同位置玩家中超过的比例" };
+const V3_LEGEND_SOLO: HexLegendText = { player: "本人", compare: null, note: "· 虚线圈 = 同职责历史平均；数值 = 同职责玩家中超过的比例" };
+
 function hexPoint(index: number, count: number, radius: number, cx: number, cy: number): [number, number] {
   const angle = (Math.PI / 180) * (index * (360 / count) - 90);
   return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
@@ -263,7 +316,8 @@ function RadarChart({ axes, size = 124 }: { axes: HexAxis[]; size?: number }) {
   // radius at 200% of average so one outlier stat can't blow up the shape.
   const scale = (ratio: number) => (Math.max(0, Math.min(200, ratio)) / 200) * R;
   const baselinePoints = axes.map((_, i) => hexPoint(i, axes.length, R / 2, cx, cy));
-  const teamPoints = axes.map((a, i) => hexPoint(i, axes.length, scale(a.teamRatio), cx, cy));
+  const hasCompare = axes.every((a) => a.teamRatio !== null);
+  const teamPoints = axes.map((a, i) => hexPoint(i, axes.length, scale(a.teamRatio ?? 0), cx, cy));
   const playerPoints = axes.map((a, i) => hexPoint(i, axes.length, scale(a.playerRatio), cx, cy));
 
   return (
@@ -278,7 +332,9 @@ function RadarChart({ axes, size = 124 }: { axes: HexAxis[]; size?: number }) {
       ))}
       {/* dashed reference ring = 100% = this game's 10-player average */}
       <polygon points={toPath(baselinePoints)} fill="none" stroke="rgba(255,255,255,0.28)" strokeDasharray="2,2" />
-      <polygon points={toPath(teamPoints)} fill="var(--series-1)" fillOpacity="0.16" stroke="var(--series-1)" strokeWidth="1.25" />
+      {hasCompare ? (
+        <polygon points={toPath(teamPoints)} fill="var(--series-1)" fillOpacity="0.16" stroke="var(--series-1)" strokeWidth="1.25" />
+      ) : null}
       <polygon points={toPath(playerPoints)} fill="var(--gold)" fillOpacity="0.22" stroke="var(--gold)" strokeWidth="1.5" />
       {axes.map((a, i) => {
         const [lx, ly] = hexPoint(i, axes.length, R + 12, cx, cy);
@@ -292,36 +348,42 @@ function RadarChart({ axes, size = 124 }: { axes: HexAxis[]; size?: number }) {
   );
 }
 
-function HexLegend({ axes }: { axes: HexAxis[] }) {
+function HexLegend({ axes, text }: { axes: HexAxis[]; text: HexLegendText }) {
   return (
     <div className="flex-1">
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-[var(--muted)]">
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--gold)" }} />
-          本人
+          {text.player}
         </span>
-        <span className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--series-1)" }} />
-          本队平均
-        </span>
-        <span className="text-[var(--muted)]/70">· 形状按本局平均换算，数值为实际数据</span>
+        {text.compare ? (
+          <span className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--series-1)" }} />
+            {text.compare}
+          </span>
+        ) : null}
+        <span className="text-[var(--muted)]/70">{text.note}</span>
       </div>
       <div className="space-y-1">
         {axes.map((a) => {
-          const above = a.playerRatio >= a.teamRatio;
+          const above = a.teamRatio === null ? null : a.playerRatio >= a.teamRatio;
           return (
             <div key={a.label} className="flex items-center justify-between gap-2 text-[11px]">
               <span className="text-[var(--muted)]">{a.label}</span>
               <span className="flex items-center gap-1.5 tabular-nums">
                 <span className="font-semibold text-[var(--foreground)]">{a.format(a.playerValue)}</span>
-                <svg
-                  viewBox="0 0 10 10"
-                  className={`h-2.5 w-2.5 shrink-0 ${above ? "text-[var(--status-good)]" : "text-[var(--status-critical)] rotate-180"}`}
-                  fill="currentColor"
-                >
-                  <path d="M5 1L9 8H1L5 1Z" />
-                </svg>
-                <span className="text-[var(--muted)]">{a.format(a.teamValue)}</span>
+                {above !== null && a.teamValue !== null ? (
+                  <>
+                    <svg
+                      viewBox="0 0 10 10"
+                      className={`h-2.5 w-2.5 shrink-0 ${above ? "text-[var(--status-good)]" : "text-[var(--status-critical)] rotate-180"}`}
+                      fill="currentColor"
+                    >
+                      <path d="M5 1L9 8H1L5 1Z" />
+                    </svg>
+                    <span className="text-[var(--muted)]">{a.format(a.teamValue)}</span>
+                  </>
+                ) : null}
               </span>
             </div>
           );
@@ -352,7 +414,13 @@ function PlayerDetailCard({
   const champIcon = championIconUrl(version, championMap, p.championId);
   const spell1 = summonerSpellIconUrl(version, spellMap, p.spell1Id);
   const spell2 = summonerSpellIconUrl(version, spellMap, p.spell2Id);
-  const hexAxes = buildHexAxes(p, team, allPlayers);
+  // v3-scored rows draw the role-relative radar; rows synced before the v3
+  // refresh fall back to the raw-stat hexagon until 「刷新旧对局」 is run.
+  const v3Axes = buildV3Axes(p, allPlayers);
+  const hexAxes = v3Axes ?? buildHexAxes(p, team, allPlayers);
+  const legendText = v3Axes
+    ? (v3Axes.every((a) => a.teamRatio !== null) ? V3_LEGEND_SR : V3_LEGEND_SOLO)
+    : RAW_LEGEND;
 
   return (
     <div
@@ -473,7 +541,7 @@ function PlayerDetailCard({
 
       <div className="mt-3 flex items-center gap-3 border-t border-[var(--border)]/40 pt-3">
         <RadarChart axes={hexAxes} />
-        <HexLegend axes={hexAxes} />
+        <HexLegend axes={hexAxes} text={legendText} />
       </div>
     </div>
   );

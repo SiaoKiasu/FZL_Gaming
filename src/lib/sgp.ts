@@ -6,7 +6,7 @@ import "server-only";
 // real-name one in champions.json (that one now backs the schedule page's
 // searchable champion picker instead -- see ChampionCombobox).
 import championMap from "@/data/championTitles.json";
-import { scoreGame } from "@/lib/rating";
+import { computeGameMetrics, scoreGame, type Baseline, type PlayerMetrics } from "@/lib/rating";
 import {
   MIN_TEAM_MEMBERS,
   SGP_BASE,
@@ -183,6 +183,13 @@ export type PlayerRow = {
   win: boolean;
   score: number | null;
   award: string;
+  // v3 rating inputs (see rating.ts). Persisted so baselines can be fitted
+  // from the DB and games re-scored without re-fetching. Null on modes the
+  // rating doesn't cover.
+  ratingGroup: string | null;
+  metrics: PlayerMetrics | null;
+  /** Per-dimension z vs the role's history; feeds the detail page radar. */
+  ratingDims: Record<string, number> | null;
   kills: number;
   deaths: number;
   assists: number;
@@ -240,6 +247,27 @@ export type TeamStats = {
   firstAtakhan: boolean;
   firstHorde: boolean;
 };
+
+/**
+ * Scores every player of every record in place. Kept separate from
+ * buildGameRecord so refreshAll can first fit the baseline from ALL fetched
+ * games and only then score them, instead of scoring each against whatever
+ * the database happened to contain before.
+ */
+export function applyRatings(records: GameRecord[], baseline: Baseline): void {
+  for (const g of records) {
+    const rows = g.players.map((p) => p.metrics).filter((m): m is PlayerMetrics => m !== null);
+    const ratings = scoreGame(rows, baseline);
+    for (const p of g.players) {
+      const r = ratings[p.puuid];
+      p.score = r && Number.isFinite(r.score) ? r.score : null;
+      p.award = r?.award ?? "";
+      p.ratingDims = r && Number.isFinite(r.score)
+        ? Object.fromEntries(Object.entries(r.dims).map(([k, v]) => [k, Math.round(v * 100) / 100]))
+        : null;
+    }
+  }
+}
 
 export type GameRecord = {
   gameId: string;
@@ -306,11 +334,14 @@ export function buildGameRecord(g: Json): GameRecord {
   const durationRaw = num(pick(g, "gameDuration", "gameLength"));
   const durationMin = Math.round((durationRaw / 60) * 10) / 10;
   const gameId = String(pick(g, "gameId", "matchId"));
-  const ratings = scoreGame(participants);
+  // Scores are filled in afterwards by applyRatings(), once the caller has a
+  // baseline -- v3 grades each player against their role's history, which a
+  // single game can't supply on its own.
+  const metricsByPuuid = new Map(computeGameMetrics(g, participants).map((m) => [m.puuid, m]));
 
   const players: PlayerRow[] = participants.map((p) => {
     const puuid = String(p.puuid ?? "");
-    const rating = ratings[puuid] ?? { score: null as unknown as number, award: "" };
+    const metrics = metricsByPuuid.get(puuid) ?? null;
     const champId = String(pick(p, "championId") ?? "");
     const name = pick(p, "riotIdGameName", "summonerName", "riotIdV2GameName");
     const tag = pick(p, "riotIdTagline", "riotIdTagLine");
@@ -349,8 +380,11 @@ export function buildGameRecord(g: Json): GameRecord {
       spell1Id: num(pick(p, "spell1Id", "summoner1Id")),
       spell2Id: num(pick(p, "spell2Id", "summoner2Id")),
       win: Boolean(p.win),
-      score: rating.score,
-      award: rating.award,
+      score: null,
+      award: "",
+      ratingGroup: metrics?.group ?? null,
+      metrics,
+      ratingDims: null,
       kills,
       deaths,
       assists,

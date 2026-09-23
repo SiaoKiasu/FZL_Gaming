@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isDbConfigured, getKnownGameIds, getIncompleteGameIds, insertGames } from "@/lib/db";
-import { SgpAuthError, syncAllRosterGames } from "@/lib/sgp";
+import { SgpAuthError, syncAllRosterGames, applyRatings } from "@/lib/sgp";
+import { loadBaseline, saveZStats } from "@/lib/ratingBaseline";
+import { PRIOR_BASELINE, computeZStats, fitLiveBaseline, mergeBaselines, type PlayerMetrics } from "@/lib/rating";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -69,6 +71,19 @@ export async function POST(req: NextRequest) {
     const repairedGames = games.filter((g) => known.has(g.gameId) && incomplete.has(g.gameId));
     const toStore = refreshAll ? games : [...newGames, ...repairedGames];
     if (toStore.length) {
+      // Routine sync: prior + whatever the DB already holds. refreshAll:
+      // every game is in hand, so fit the live half from them directly and
+      // refresh the cached standardisation stats too -- that's the one
+      // moment the whole history gets re-graded on one consistent yardstick.
+      let baseline = await loadBaseline();
+      if (refreshAll) {
+        const allRows = games.flatMap((g) => g.players.map((p) => p.metrics)).filter((m): m is PlayerMetrics => m !== null);
+        baseline = mergeBaselines(PRIOR_BASELINE, fitLiveBaseline(allRows));
+        const zstats = computeZStats(allRows, baseline);
+        baseline = mergeBaselines(PRIOR_BASELINE, fitLiveBaseline(allRows), zstats);
+        await saveZStats(zstats).catch((err: unknown) => console.warn("[matches/sync] zstats not cached:", err));
+      }
+      applyRatings(toStore, baseline);
       await insertGames(toStore);
     }
     return NextResponse.json({

@@ -50,6 +50,7 @@ const MATCH_PLAYER_COLUMNS = [
   "damage_taken", "heal", "turret_damage", "cc_time", "cs", "vision_score", "wards_placed",
   "wards_killed", "champ_level", "items", "damage_self_mitigated", "killing_sprees",
   "largest_killing_spree", "objectives_stolen", "heals_on_teammates", "gold_spent", "time_spent_dead",
+  "metrics", "rating_group", "rating_dims",
 ] as const;
 
 function playerRowValues(gameId: string, p: GameRecord["players"][number]): unknown[] {
@@ -60,6 +61,11 @@ function playerRowValues(gameId: string, p: GameRecord["players"][number]): unkn
     p.damageTaken, p.heal, p.turretDamage, p.ccTime, p.cs, p.visionScore, p.wardsPlaced,
     p.wardsKilled, p.champLevel, p.items, p.damageSelfMitigated, p.killingSprees,
     p.largestKillingSpree, p.objectivesStolen, p.healsOnTeammates, p.goldSpent, p.timeSpentDead,
+    // Only the metric map goes in -- puuid/teamId/win etc. are already
+    // columns of their own, and duplicating them would just bloat the JSONB.
+    p.metrics ? JSON.stringify({ ...p.metrics.metrics, tank_idx: p.metrics.tankIdx }) : null,
+    p.ratingGroup,
+    p.ratingDims ? JSON.stringify(p.ratingDims) : null,
   ];
 }
 
@@ -188,6 +194,9 @@ export type StoredPlayer = {
   healsOnTeammates: number;
   goldSpent: number;
   timeSpentDead: number;
+  /** v3 role group ("sr|TOP") and per-dimension z; null until re-scored under v3. */
+  ratingGroup: string | null;
+  ratingDims: Record<string, number> | null;
 };
 
 export type StoredMatch = {
@@ -242,6 +251,9 @@ type PlayerRow = {
   heals_on_teammates: number | null;
   gold_spent: number | null;
   time_spent_dead: number | null;
+  rating_group: string | null;
+  // JSONB arrives parsed as an object from both drivers; string kept for safety.
+  rating_dims: Record<string, number> | string | null;
 };
 
 type MatchRow = {
@@ -297,7 +309,21 @@ function toPlayer(r: PlayerRow): StoredPlayer {
     healsOnTeammates: Number(r.heals_on_teammates ?? 0),
     goldSpent: Number(r.gold_spent ?? 0),
     timeSpentDead: Number(r.time_spent_dead ?? 0),
+    ratingGroup: r.rating_group ?? null,
+    ratingDims: parseDims(r.rating_dims),
   };
+}
+
+function parseDims(v: Record<string, number> | string | null | undefined): Record<string, number> | null {
+  if (!v) return null;
+  if (typeof v === "string") {
+    try {
+      return JSON.parse(v) as Record<string, number>;
+    } catch {
+      return null;
+    }
+  }
+  return v;
 }
 
 function parseTeamStats(raw: string | null): Record<string, TeamStats> | null {
@@ -349,7 +375,8 @@ export async function listMatches(
            mp.magic_damage, mp.true_damage, mp.damage_taken, mp.heal, mp.turret_damage, mp.cc_time,
            mp.cs, mp.vision_score, mp.wards_placed, mp.wards_killed, mp.champ_level, mp.items,
            mp.damage_self_mitigated, mp.killing_sprees, mp.largest_killing_spree, mp.objectives_stolen,
-           mp.heals_on_teammates, mp.gold_spent, mp.time_spent_dead
+           mp.heals_on_teammates, mp.gold_spent, mp.time_spent_dead,
+           mp.rating_group, mp.rating_dims
     FROM (
       SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count, team_stats
       FROM matches
@@ -395,7 +422,8 @@ export async function getMatch(gameId: string): Promise<StoredMatch | null> {
            mp.magic_damage, mp.true_damage, mp.damage_taken, mp.heal, mp.turret_damage, mp.cc_time,
            mp.cs, mp.vision_score, mp.wards_placed, mp.wards_killed, mp.champ_level, mp.items,
            mp.damage_self_mitigated, mp.killing_sprees, mp.largest_killing_spree, mp.objectives_stolen,
-           mp.heals_on_teammates, mp.gold_spent, mp.time_spent_dead
+           mp.heals_on_teammates, mp.gold_spent, mp.time_spent_dead,
+           mp.rating_group, mp.rating_dims
     FROM matches m
     JOIN match_players mp ON mp.game_id = m.game_id
     WHERE m.game_id = ${gameId}
