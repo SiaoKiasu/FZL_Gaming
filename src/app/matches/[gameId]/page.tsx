@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import champNameData from "@/data/champions.json";
@@ -85,14 +86,45 @@ function StatBar({ value, max, digits = 0, suffix = "" }: { value: number; max: 
   );
 }
 
-function StatCell({ label, icon, children }: { label: string; icon?: string; children: React.ReactNode }) {
+function StatCell({
+  label,
+  icon,
+  accent,
+  children,
+}: {
+  label: string;
+  icon?: string;
+  // Group accent color (one of --series-1..4) -- a thin left border tying
+  // this cell back to its group label, so the eye can tell at a glance
+  // which of the four groups below it belongs to even once the grid wraps.
+  accent?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-sm border border-[var(--border)]/60 bg-white/[0.02] transition-colors hover:border-[var(--border)]">
+    <div
+      className="rounded-sm border border-[var(--border)]/60 bg-white/[0.02] transition-colors hover:border-[var(--border)]"
+      style={accent ? { borderLeftColor: accent, borderLeftWidth: 2 } : undefined}
+    >
       <p className="flex items-center gap-1 border-b border-[var(--border)]/40 px-2 pt-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--muted)]">
         {icon ? <StatIcon name={icon} className="h-3 w-3 shrink-0 opacity-70" /> : null}
         {label}
       </p>
       {children}
+    </div>
+  );
+}
+
+// Narrow label cell leading each group's row in the grid below --
+// grid-cols-[88px_repeat(3,1fr)] on sm+ puts this in its own first column
+// (one row per group, 4 rows total); on mobile it collapses to a full-width
+// header above that group's 3 cells instead (col-span-3).
+function StatGroupLabel({ name, accent }: { name: string; accent: string }) {
+  return (
+    <div
+      className="col-span-3 flex items-center rounded-sm bg-white/[0.03] px-2 py-1 font-display text-[11px] font-bold sm:col-span-1 sm:py-0"
+      style={{ color: accent, borderLeft: `2px solid ${accent}` }}
+    >
+      {name}
     </div>
   );
 }
@@ -492,54 +524,75 @@ function PlayerDetailCard({
         })}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <StatCell label="补刀" icon="cs">
-          <StatBar value={p.cs} max={maxima.cs} />
-        </StatCell>
-        <StatCell label="视野得分" icon="vision">
-          <div className="px-2 pb-1.5 pt-1">
-            <p className="text-sm tabular-nums text-[var(--foreground)]">{p.visionScore}</p>
-            <p className="text-[10px] text-[var(--muted)]">插眼 {p.wardsPlaced} · 排眼 {p.wardsKilled}</p>
-          </div>
-        </StatCell>
-        <StatCell label="对英雄输出" icon="damage">
-          <DamageBreakdown p={p} maxTotal={maxima.damageToChampions} />
-        </StatCell>
-        <StatCell label="承受伤害" icon="taken">
-          <StatBar value={p.damageTaken} max={maxima.damageTaken} />
-        </StatCell>
-        <StatCell label="伤害减免" icon="mitigate">
-          <StatBar value={p.damageSelfMitigated} max={maxima.damageSelfMitigated} />
-        </StatCell>
-        <StatCell label="治疗量" icon="heal">
-          <HealBreakdown p={p} maxTotal={maxima.heal} />
-        </StatCell>
-        <StatCell label="防御塔伤害" icon="tower">
-          <StatBar value={p.turretDamage} max={maxima.turretDamage} />
-        </StatCell>
-        <StatCell label="控制时长" icon="cc">
-          <StatBar value={p.ccTime} max={maxima.ccTime} suffix=" 秒" />
-        </StatCell>
-        <StatCell label="经济" icon="gold">
-          <StatBar value={p.gold} max={maxima.gold} />
-          <p className="px-2 pb-1.5 text-[10px] text-[var(--muted)]">已花 {p.goldSpent.toLocaleString("zh-CN")}</p>
-        </StatCell>
-        <StatCell label="连杀" icon="streak">
-          <div className="px-2 pb-1.5 pt-1">
-            <p className="text-sm tabular-nums text-[var(--foreground)]">{p.killingSprees} 次</p>
-            <p className="text-[10px] text-[var(--muted)]">最大 {p.largestKillingSpree} 连杀</p>
-          </div>
-        </StatCell>
-        <StatCell label="资源偷取" icon="steal">
-          <div className="px-2 pb-1.5 pt-1">
-            <p className="text-sm tabular-nums text-[var(--foreground)]">{p.objectivesStolen}</p>
-          </div>
-        </StatCell>
-        <StatCell label="死亡时长" icon="skull">
-          <div className="px-2 pb-1.5 pt-1">
-            <p className="text-sm tabular-nums text-[var(--foreground)]">{formatSeconds(p.timeSpentDead)}</p>
-          </div>
-        </StatCell>
+      {/* Four groups (输出/生存/资源/视野控制), one row each on sm+ via
+          grid-cols-[88px_repeat(3,1fr)] -- was a flat 12-cell grid where
+          only some cells had a proportional bar and some were bare
+          numbers, so nothing tied related stats together visually. Each
+          group's accent color (--series-1..4) repeats on its label and
+          its three cells' left border. */}
+      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-[88px_repeat(3,1fr)]">
+        <Fragment>
+          <StatGroupLabel name="输出与推进" accent="var(--series-1)" />
+          <StatCell label="对英雄输出" icon="damage" accent="var(--series-1)">
+            <DamageBreakdown p={p} maxTotal={maxima.damageToChampions} />
+          </StatCell>
+          <StatCell label="防御塔伤害" icon="tower" accent="var(--series-1)">
+            <StatBar value={p.turretDamage} max={maxima.turretDamage} />
+          </StatCell>
+          <StatCell label="连杀" icon="streak" accent="var(--series-1)">
+            <div className="px-2 pb-1.5 pt-1">
+              <p className="text-sm tabular-nums text-[var(--foreground)]">{p.killingSprees} 次</p>
+              <p className="text-[10px] text-[var(--muted)]">最大 {p.largestKillingSpree} 连杀</p>
+            </div>
+          </StatCell>
+        </Fragment>
+
+        <Fragment>
+          <StatGroupLabel name="生存与承伤" accent="var(--series-2)" />
+          <StatCell label="承受伤害" icon="taken" accent="var(--series-2)">
+            <StatBar value={p.damageTaken} max={maxima.damageTaken} />
+          </StatCell>
+          <StatCell label="伤害减免" icon="mitigate" accent="var(--series-2)">
+            <StatBar value={p.damageSelfMitigated} max={maxima.damageSelfMitigated} />
+          </StatCell>
+          <StatCell label="死亡时长" icon="skull" accent="var(--series-2)">
+            <div className="px-2 pb-1.5 pt-1">
+              <p className="text-sm tabular-nums text-[var(--foreground)]">{formatSeconds(p.timeSpentDead)}</p>
+            </div>
+          </StatCell>
+        </Fragment>
+
+        <Fragment>
+          <StatGroupLabel name="资源与发育" accent="var(--series-3)" />
+          <StatCell label="补刀" icon="cs" accent="var(--series-3)">
+            <StatBar value={p.cs} max={maxima.cs} />
+          </StatCell>
+          <StatCell label="经济" icon="gold" accent="var(--series-3)">
+            <StatBar value={p.gold} max={maxima.gold} />
+            <p className="px-2 pb-1.5 text-[10px] text-[var(--muted)]">已花 {p.goldSpent.toLocaleString("zh-CN")}</p>
+          </StatCell>
+          <StatCell label="资源偷取" icon="steal" accent="var(--series-3)">
+            <div className="px-2 pb-1.5 pt-1">
+              <p className="text-sm tabular-nums text-[var(--foreground)]">{p.objectivesStolen}</p>
+            </div>
+          </StatCell>
+        </Fragment>
+
+        <Fragment>
+          <StatGroupLabel name="视野与控制" accent="var(--series-4)" />
+          <StatCell label="视野得分" icon="vision" accent="var(--series-4)">
+            <div className="px-2 pb-1.5 pt-1">
+              <p className="text-sm tabular-nums text-[var(--foreground)]">{p.visionScore}</p>
+              <p className="text-[10px] text-[var(--muted)]">插眼 {p.wardsPlaced} · 排眼 {p.wardsKilled}</p>
+            </div>
+          </StatCell>
+          <StatCell label="治疗量" icon="heal" accent="var(--series-4)">
+            <HealBreakdown p={p} maxTotal={maxima.heal} />
+          </StatCell>
+          <StatCell label="控制时长" icon="cc" accent="var(--series-4)">
+            <StatBar value={p.ccTime} max={maxima.ccTime} suffix=" 秒" />
+          </StatCell>
+        </Fragment>
       </div>
 
       <div className="mt-3 flex items-center gap-3 border-t border-[var(--border)]/40 pt-3">

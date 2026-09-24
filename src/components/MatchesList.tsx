@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { StoredMatch, StoredPlayer } from "@/lib/db";
 import { championIconUrl } from "@/lib/ddragon";
-import Pill from "@/components/Pill";
 
 const POSITION_ORDER: Record<string, number> = {
   TOP: 0,
@@ -50,32 +49,34 @@ function TeamBlock({
   players,
   version,
   championMap,
+  maxScore,
 }: {
   label: string;
   win: boolean;
   players: StoredPlayer[];
   version: string;
   championMap: Record<number, string>;
+  // Highest score across all 10 players in the match (both teams) -- one
+  // shared scale so a bar's length means the same thing whichever team's
+  // column it's in.
+  maxScore: number;
 }) {
   const sorted = [...players].sort(
     (a, b) => (POSITION_ORDER[a.position] ?? 9) - (POSITION_ORDER[b.position] ?? 9)
   );
   return (
-    <div
-      className={`flex-1 min-w-0 border-l-2 pl-4 ${
-        win ? "border-[var(--status-good)]/60" : "border-[var(--status-critical)]/60"
-      }`}
-    >
+    <div className="flex-1 min-w-0">
       <p
         className={`font-display text-xs font-bold uppercase tracking-wider ${
           win ? "text-[var(--status-good)]" : "text-[var(--status-critical)]"
         }`}
       >
-        {label} · {win ? "胜利" : "失败"}
+        {label}
       </p>
       <div className="mt-2 space-y-1.5">
         {sorted.map((p) => {
           const iconUrl = championIconUrl(version, championMap, p.championId);
+          const scorePct = p.score !== null && maxScore > 0 ? Math.max(Math.round((p.score / maxScore) * 100), 4) : 0;
           return (
             <div
               key={p.playerName}
@@ -99,6 +100,12 @@ function TeamBlock({
                 {p.member || p.playerName.split("#")[0]}
               </span>
               <span className="hidden w-16 shrink-0 truncate text-[var(--muted)] sm:block">{p.champion}</span>
+              {/* Fixed-width track (not flex-1) so it always starts/ends at
+                  the same x position regardless of whether the award badge
+                  after it is present. */}
+              <div className="hidden h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-white/5 sm:block">
+                <div className="h-full rounded-full bg-[var(--gold)]" style={{ width: `${scorePct}%` }} />
+              </div>
               {p.award ? (
                 <span
                   title={p.award === "MVP" ? "MVP · 获胜方最佳" : "SVP · 落败方最佳"}
@@ -139,25 +146,45 @@ function MatchCard({
   const teamA = match.players.filter((p) => p.teamId === 100);
   const teamB = match.players.filter((p) => p.teamId === 200);
   const win = teamA[0]?.win ?? true;
+  const maxScore = Math.max(0, ...match.players.map((p) => p.score ?? 0));
+  // The banner needs one headline result for the whole card even though
+  // both teams are shown -- take it from whichever side has more of the
+  // 车队 roster on it this game (ties favor team A), not just "team A's
+  // result", since the squad isn't always blue side.
+  const mineOnA = teamA.filter((p) => p.member).length;
+  const mineOnB = teamB.filter((p) => p.member).length;
+  const ourWin = mineOnA >= mineOnB ? win : !win;
   return (
     <Link
       href={`/matches/${match.gameId}`}
-      className="group block rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4 transition hover:border-[var(--gold)]/60 sm:p-5"
+      className="group block overflow-hidden rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] transition hover:border-[var(--gold)]/60"
     >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Pill tone="neutral">{formatTime(match.gameCreationMs)}</Pill>
-          <Pill tone="neutral">{match.queueName}</Pill>
-          <Pill tone="neutral">{match.durationMin} 分钟</Pill>
-          <Pill tone="neutral">车队 {match.rosterCount} 人同队</Pill>
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-5 ${
+          ourWin
+            ? "border-[var(--status-good)]/30 bg-[var(--status-good)]/10"
+            : "border-[var(--status-critical)]/30 bg-[var(--status-critical)]/10"
+        }`}
+      >
+        <div>
+          <p
+            className={`font-display text-base font-extrabold ${
+              ourWin ? "text-[var(--status-good)]" : "text-[var(--status-critical)]"
+            }`}
+          >
+            {ourWin ? "胜利" : "失败"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+            {formatTime(match.gameCreationMs)} · {match.queueName} · {match.durationMin} 分钟 · 车队 {match.rosterCount} 人同队
+          </p>
         </div>
         <span className="text-xs font-semibold text-[var(--gold)] opacity-0 transition group-hover:opacity-100">
           查看详情 →
         </span>
       </div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:gap-8">
-        <TeamBlock label="蓝色方" win={win} players={teamA} version={version} championMap={championMap} />
-        <TeamBlock label="红色方" win={!win} players={teamB} version={version} championMap={championMap} />
+      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:gap-8 sm:p-5">
+        <TeamBlock label="蓝色方" win={win} players={teamA} version={version} championMap={championMap} maxScore={maxScore} />
+        <TeamBlock label="红色方" win={!win} players={teamB} version={version} championMap={championMap} maxScore={maxScore} />
       </div>
     </Link>
   );
