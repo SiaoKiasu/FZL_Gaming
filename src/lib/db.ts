@@ -553,3 +553,93 @@ export async function updateLedgerPassword(hash: string): Promise<void> {
   `;
 }
 
+
+
+// ---- v3 timeline backfill ------------------------------------------------
+// Ranked games whose stored metrics predate the timeline block. Used by
+// /api/matches/timeline-backfill to top them up a page at a time.
+export async function getGamesMissingTimeline(limit: number): Promise<string[]> {
+  const { rows } = await sql<{ game_id: string }>`
+    SELECT m.game_id
+    FROM matches m
+    WHERE m.queue_id IN (420, 440)
+      AND EXISTS (
+        SELECT 1 FROM match_players mp
+        WHERE mp.game_id = m.game_id AND mp.metrics IS NOT NULL AND NOT (mp.metrics ? 'tl_tf_survive')
+      )
+    ORDER BY m.game_creation_ms DESC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => r.game_id);
+}
+
+export async function countGamesMissingTimeline(): Promise<number> {
+  const { rows } = await sql<{ n: string }>`
+    SELECT count(*)::text AS n
+    FROM matches m
+    WHERE m.queue_id IN (420, 440)
+      AND EXISTS (
+        SELECT 1 FROM match_players mp
+        WHERE mp.game_id = m.game_id AND mp.metrics IS NOT NULL AND NOT (mp.metrics ? 'tl_tf_survive')
+      )
+  `;
+  return Number(rows[0]?.n ?? 0);
+}
+
+export type StoredMetricsRow = {
+  puuid: string;
+  teamId: number;
+  win: boolean;
+  position: string;
+  queueId: number;
+  championId: number;
+  ratingGroup: string | null;
+  metrics: Record<string, number>;
+};
+
+/** The persisted rating inputs for one game's ten players. */
+export async function getGameMetricsRows(gameId: string): Promise<StoredMetricsRow[]> {
+  const { rows } = await sql<{
+    puuid: string; team_id: number; win: boolean; position: string; queue_id: number;
+    champion_id: number; rating_group: string | null; metrics: Record<string, number> | string | null;
+  }>`
+    SELECT mp.puuid, mp.team_id, mp.win, mp.position, m.queue_id, mp.champion_id, mp.rating_group, mp.metrics
+    FROM match_players mp JOIN matches m ON m.game_id = mp.game_id
+    WHERE mp.game_id = ${gameId}
+  `;
+  return rows
+    .filter((r) => r.metrics)
+    .map((r) => ({
+      puuid: r.puuid,
+      teamId: Number(r.team_id),
+      win: Boolean(r.win),
+      position: r.position,
+      queueId: Number(r.queue_id),
+      championId: Number(r.champion_id),
+      ratingGroup: r.rating_group,
+      metrics: (typeof r.metrics === "string" ? JSON.parse(r.metrics) : r.metrics) as Record<string, number>,
+    }));
+}
+
+/** Writes back re-scored rating fields for one game (metrics incl. tl_*, score, award, dims). */
+export async function updateGameRatings(
+  gameId: string,
+  players: { puuid: string; metrics: Record<string, number>; score: number | null; award: string; ratingDims: Record<string, number> | null }[]
+): Promise<void> {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    for (const p of players) {
+      await client.query(
+        `UPDATE match_players SET metrics = $3, score = $4, award = $5, rating_dims = $6 WHERE game_id = $1 AND puuid = $2`,
+        [gameId, p.puuid, JSON.stringify(p.metrics), p.score, p.award, p.ratingDims ? JSON.stringify(p.ratingDims) : null]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
