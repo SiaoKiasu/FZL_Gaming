@@ -399,27 +399,50 @@ function HexLegend({ axes, text }: { axes: HexAxis[]; text: HexLegendText }) {
         ) : null}
         <span className="text-[var(--muted)]/70">{text.note}</span>
       </div>
-      <div className="space-y-1">
+      {/* Was a bare "label ... number arrow number" row, floating flush
+          right with nothing tying a row's text to its own label at a
+          glance once there were 8-10 of them stacked -- and just two
+          numbers read as dry with no sense of magnitude. Every row is now
+          a single aligned line: label, then the player's own fill-bar
+          (length = playerRatio, this game's 10-player-average baseline,
+          same scale the radar shape itself uses) and number, then the
+          same for the comparison side, then the arrow. */}
+      <div className="space-y-1.5">
         {axes.map((a) => {
-          const above = a.teamRatio === null ? null : a.playerRatio >= a.teamRatio;
+          const hasCompare = a.teamRatio !== null && a.teamValue !== null;
+          const above = hasCompare ? a.playerRatio >= (a.teamRatio as number) : null;
+          const playerPct = Math.min(200, Math.max(0, a.playerRatio)) / 2;
+          const teamPct = hasCompare ? Math.min(200, Math.max(0, a.teamRatio as number)) / 2 : 0;
           return (
-            <div key={a.label} className="flex items-center justify-between gap-2 text-[11px]">
-              <span className="text-[var(--muted)]">{a.label}</span>
-              <span className="flex items-center gap-1.5 tabular-nums">
-                <span className="font-semibold text-[var(--foreground)]">{a.format(a.playerValue)}</span>
-                {above !== null && a.teamValue !== null ? (
-                  <>
-                    <svg
-                      viewBox="0 0 10 10"
-                      className={`h-2.5 w-2.5 shrink-0 ${above ? "text-[var(--status-good)]" : "text-[var(--status-critical)] rotate-180"}`}
-                      fill="currentColor"
-                    >
-                      <path d="M5 1L9 8H1L5 1Z" />
-                    </svg>
-                    <span className="text-[var(--muted)]">{a.format(a.teamValue)}</span>
-                  </>
-                ) : null}
-              </span>
+            <div key={a.label} className="flex items-center gap-2 text-[11px]">
+              <span className="w-9 shrink-0 text-[var(--muted)]">{a.label}</span>
+              <div className="flex flex-1 items-center gap-1.5">
+                <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                  <div className="h-full rounded-full bg-[var(--gold)]" style={{ width: `${playerPct}%` }} />
+                </div>
+                <span className="w-11 shrink-0 text-right font-semibold tabular-nums text-[var(--gold-soft)]">
+                  {a.format(a.playerValue)}
+                </span>
+              </div>
+              {hasCompare ? (
+                <>
+                  <div className="flex flex-1 items-center gap-1.5">
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div className="h-full rounded-full bg-[var(--series-1)]" style={{ width: `${teamPct}%` }} />
+                    </div>
+                    <span className="w-11 shrink-0 text-right tabular-nums text-[var(--series-1)]">
+                      {a.format(a.teamValue as number)}
+                    </span>
+                  </div>
+                  <svg
+                    viewBox="0 0 10 10"
+                    className={`h-2.5 w-2.5 shrink-0 ${above ? "text-[var(--status-good)]" : "text-[var(--status-critical)] rotate-180"}`}
+                    fill="currentColor"
+                  >
+                    <path d="M5 1L9 8H1L5 1Z" />
+                  </svg>
+                </>
+              ) : null}
             </div>
           );
         })}
