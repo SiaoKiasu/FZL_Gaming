@@ -123,6 +123,14 @@ function BookingBar({
   // never clipped by a narrow bar -- flip it to the other side once the
   // bar runs past ~70% of the track so it doesn't fall off the right edge.
   const labelOnRight = left + width <= 70;
+  // Cap the label to the space actually free on whichever side it sits,
+  // so a long time-range string truncates with an ellipsis instead of
+  // spilling past the track edge into the avatar/name column next door
+  // (previously unbounded, which is exactly what a wide bar plus a long
+  // cross-midnight label like "22:00–9月25日 03:00" ran into).
+  const sideStyle = labelOnRight
+    ? { left: `calc(${left + width}% + 6px)`, maxWidth: `calc(${Math.max(100 - (left + width), 0)}% - 10px)` }
+    : { right: `calc(${100 - left}% + 6px)`, maxWidth: `calc(${Math.max(left, 0)}% - 10px)` };
   return (
     <div className="relative h-6 flex-1 rounded-sm bg-white/[0.03]">
       <div
@@ -130,10 +138,11 @@ function BookingBar({
         style={{ left: `${left}%`, width: `${width}%` }}
       />
       <span
-        className={`absolute inset-y-0 flex items-center whitespace-nowrap text-[10px] font-medium text-[var(--gold-soft)] ${
+        className={`absolute inset-y-0 flex items-center overflow-hidden text-ellipsis whitespace-nowrap text-[10px] font-medium text-[var(--gold-soft)] ${
           labelOnRight ? "" : "justify-end"
         }`}
-        style={labelOnRight ? { left: `calc(${left + width}% + 6px)` } : { right: `calc(${100 - left}% + 6px)` }}
+        style={sideStyle}
+        title={label}
       >
         {label}
       </span>
@@ -160,7 +169,13 @@ export default function ScheduleTimeline({
   const entries: TimelineEntry[] = signups
     .filter(
       (s): s is { member: string; startMinute: number; endMinute: number; endNextDay: boolean } =>
-        s.startMinute !== null && s.endMinute !== null && s.startMinute !== s.endMinute
+        s.startMinute !== null &&
+        s.endMinute !== null &&
+        // Equal clock minutes only means zero-length on the SAME day --
+        // the signup API rejects that case outright. When endNextDay is
+        // set, equal clock minutes is a full 24h booking, not an empty
+        // one, so it must still render.
+        (s.startMinute !== s.endMinute || s.endNextDay)
     )
     .map((s) => ({
       member: s.member,
