@@ -25,7 +25,11 @@ type Json = Record<string, unknown>;
 // filtered by 对位胜率 (does the higher of the two lane opponents win more):
 // absolute per-minute rates carry that signal, team-share metrics don't --
 // shares stay in only where they measure in-team contribution (输出/参团).
-export const DIMS: Record<string, Record<string, number>> = {
+// Mayhem has no timeline (SGP has no DETAILS for it), so its dimensions stay
+// on SUMMARY metrics only. Summoner's Rift adds the tl_* metrics computed
+// from the match timeline by computeTimelineMetrics(); a row that lacks
+// them (timeline not fetched yet) simply skips those metrics -- see rawZ.
+export const DIMS_MAYHEM: Record<string, Record<string, number>> = {
   对线: { ch_laningPhaseGoldExpAdvantage: 1, ch_maxLevelLeadLaneOpponent: 1, ch_turretPlatesTaken: 1, ch_soloKills: 0.6 },
   发育: { ch_goldPerMinute: 1, xp_pm: 1, cs_pm: 0.7 },
   输出: { ch_damagePerMinute: 1, d_dmg_share: 0.8, d_dmg_per_gold: 0.6 },
@@ -40,21 +44,35 @@ export const DIMS: Record<string, Record<string, number>> = {
   生存: { neg_deaths_pm: 1, kda_cap: 0.8, neg_dead_pm: 0.5 },
 };
 
+export const DIMS_SR: Record<string, Record<string, number>> = {
+  ...DIMS_MAYHEM,
+  资源: { ...DIMS_MAYHEM["资源"], tl_obj_part_rate: 0.8 },
+  参团: { ...DIMS_MAYHEM["参团"], tl_roam_td: 0.5 },
+  生存: { ...DIMS_MAYHEM["生存"], tl_neg_deaths_pre15: 0.5 },
+  // 团战: survival in fights, share of the team's fight kills, initiating a
+  // fight the team then won, and being there for objectives. Correlates ~0.74
+  // with 参团 (players who fight well also participate a lot) -- in line with
+  // other dimension pairs (对线↔发育 0.72), so kept as its own axis.
+  团战: { tl_tf_survive: 1, tl_tf_kp2: 0.6, tl_opener_won: 0.6, tl_obj_part_rate: 0.4 },
+};
+
+const DIMS_BY_MODE: Record<string, Record<string, Record<string, number>>> = { sr: DIMS_SR, mayhem: DIMS_MAYHEM };
+
 /** Every metric any dimension reads. Also the whitelist ratingBaseline.ts
  *  interpolates into SQL, so it must stay a closed set of plain identifiers. */
 export const METRIC_KEYS: readonly string[] = Array.from(
-  new Set(Object.values(DIMS).flatMap((d) => Object.keys(d)))
+  new Set([...Object.values(DIMS_SR), ...Object.values(DIMS_MAYHEM)].flatMap((d) => Object.keys(d)))
 ).sort();
 
 // ---------------------------------------------------------------- weights
 // Summoner's Rift, per position. Follows the "本局重点观察" list on page 3
 // of 掌盟's rule sheet; each row sums to 1.
 const W_SR: Record<string, Record<string, number>> = {
-  TOP: { 对线: 0.18, 输出: 0.16, 承伤: 0.16, 参团: 0.14, 控制: 0.10, 推进: 0.12, 发育: 0.06, 生存: 0.08 },
-  JUNGLE: { 节奏: 0.14, 资源: 0.20, 参团: 0.18, 输出: 0.12, 视野: 0.08, 控制: 0.10, 承伤: 0.08, 生存: 0.10 },
-  MIDDLE: { 对线: 0.18, 输出: 0.20, 发育: 0.12, 参团: 0.16, 控制: 0.08, 资源: 0.06, 推进: 0.06, 生存: 0.08, 视野: 0.06 },
-  BOTTOM: { 发育: 0.16, 输出: 0.22, 对线: 0.16, 参团: 0.16, 推进: 0.08, 资源: 0.06, 生存: 0.10, 控制: 0.06 },
-  UTILITY: { 控制: 0.22, 保护: 0.16, 参团: 0.18, 视野: 0.20, 生存: 0.08, 承伤: 0.08, 资源: 0.04, 对线: 0.04 },
+  TOP: { 对线: 0.16, 输出: 0.14, 承伤: 0.14, 参团: 0.10, 团战: 0.10, 控制: 0.10, 推进: 0.12, 发育: 0.06, 生存: 0.08 },
+  JUNGLE: { 节奏: 0.12, 资源: 0.18, 参团: 0.14, 团战: 0.10, 输出: 0.12, 视野: 0.08, 控制: 0.10, 承伤: 0.06, 生存: 0.10 },
+  MIDDLE: { 对线: 0.16, 输出: 0.18, 发育: 0.10, 参团: 0.12, 团战: 0.10, 控制: 0.08, 资源: 0.06, 推进: 0.06, 生存: 0.08, 视野: 0.06 },
+  BOTTOM: { 发育: 0.14, 输出: 0.20, 对线: 0.14, 参团: 0.12, 团战: 0.10, 推进: 0.08, 资源: 0.06, 生存: 0.10, 控制: 0.06 },
+  UTILITY: { 控制: 0.20, 保护: 0.14, 参团: 0.14, 团战: 0.12, 视野: 0.18, 生存: 0.08, 承伤: 0.06, 资源: 0.04, 对线: 0.04 },
 };
 // Hextech Mayhem has no lanes, so the role comes from champion class +
 // what was actually built (page 5 of the rule sheet).
@@ -66,7 +84,7 @@ const W_MAYHEM: Record<string, Record<string, number>> = {
 };
 
 /** Canonical display order for dimensions (radar axes, legends). */
-export const DIM_ORDER = ["对线", "发育", "输出", "承伤", "控制", "资源", "节奏", "参团", "保护", "推进", "视野", "生存"] as const;
+export const DIM_ORDER = ["对线", "发育", "输出", "承伤", "控制", "资源", "节奏", "参团", "团战", "保护", "推进", "视野", "生存"] as const;
 
 /** The dimensions a role is actually graded on, in display order. */
 export function dimsForGroup(group: string): string[] {
@@ -212,6 +230,148 @@ export function computeGameMetrics(game: Json, participants: Json[]): PlayerMetr
   });
 }
 
+// ---------------------------------------------------------------- timeline
+export type TimelineJson = {
+  participants?: { participantId: number; puuid: string }[];
+  frames?: {
+    events?: Json[];
+    participantFrames?: Record<string, { position?: { x: number; y: number } } & Json>;
+  }[];
+};
+
+type XY = { x: number; y: number };
+const MIN_MS = 60000;
+const dist = (a: XY, b: XY) => Math.hypot(a.x - b.x, a.y - b.y);
+// Map thirds: y - x > 3500 is the top-side band, < -3500 bottom-side, else mid.
+const band = (p: XY) => (p.y - p.x > 3500 ? "TOP" : p.y - p.x < -3500 ? "BOTTOM" : "MIDDLE");
+const involved = (e: Json): Set<number> => {
+  const s = new Set<number>([num(e.killerId), num(e.victimId), ...((e.assistingParticipantIds as number[]) ?? [])]);
+  s.delete(0);
+  return s;
+};
+// Round-half-up to the nearest one-minute frame (kept identical in rating.py).
+const frameAt = (ts: number, nf: number) => Math.min(Math.floor((ts + 30000) / MIN_MS), nf - 1);
+
+/**
+ * The six timeline metrics the SR dimensions read. Same definitions and
+ * thresholds as rating.py's compute_timeline_metrics -- the two are
+ * parity-tested against each other on 1272 games.
+ *
+ *   tl_tf_survive       share of the player's teamfights they didn't die in
+ *   tl_tf_kp2           player's teamfight takedowns / ALL of the team's teamfight kills
+ *   tl_opener_won       teamfights where the player landed the first hit on the first victim AND the team won the fight
+ *   tl_obj_part_rate    share of the team's monsters/buildings the player took part in or stood within 3500 of
+ *   tl_roam_td          takedowns before 15:00 outside the player's own lane band (laners only)
+ *   tl_neg_deaths_pre15 minus deaths before 15:00
+ *
+ * A teamfight is a cluster of kills ≤15s and ≤3000 units apart with ≥2 kills
+ * and ≥3 distinct players involved.
+ */
+export function computeTimelineMetrics(
+  players: { puuid: string; teamId: number; position: string }[],
+  timeline: TimelineJson
+): Record<string, Record<string, number>> {
+  // Accept the raw DETAILS envelope ({ metadata, json: { frames } }) as well
+  // as the inner object -- the fit scripts read files, fetchTimeline unwraps.
+  const inner = (timeline as { json?: TimelineJson }).json;
+  if (!timeline.frames && inner?.frames) timeline = inner;
+  const frames = timeline.frames ?? [];
+  const nf = frames.length;
+  const out: Record<string, Record<string, number>> = {};
+  if (!nf) return out;
+  const pidOf = new Map((timeline.participants ?? []).map((p) => [p.puuid, p.participantId]));
+  const teamOf = new Map<number, number>();
+  const posOf = new Map<number, string>();
+  for (const p of players) {
+    const pid = pidOf.get(p.puuid);
+    if (pid !== undefined) {
+      teamOf.set(pid, p.teamId);
+      posOf.set(pid, p.position);
+    }
+  }
+  const pf = (i: number, pid: number) => frames[Math.min(i, nf - 1)].participantFrames?.[String(pid)];
+  const ev = frames.flatMap((f) => f.events ?? []);
+  const kills = ev.filter((e) => e.type === "CHAMPION_KILL").sort((a, b) => num(a.timestamp) - num(b.timestamp));
+  const fights: Json[][] = [];
+  for (const e of kills) {
+    const last = fights.length ? fights[fights.length - 1] : null;
+    const prev = last ? last[last.length - 1] : null;
+    if (prev && num(e.timestamp) - num(prev.timestamp) <= 15000 && dist(e.position as XY, prev.position as XY) <= 3000) last!.push(e);
+    else fights.push([e]);
+  }
+  const teamfights = fights.filter((f) => {
+    if (f.length < 2) return false;
+    const all = new Set<number>();
+    for (const e of f) for (const x of involved(e)) all.add(x);
+    return all.size >= 3;
+  });
+  const objs = ev.filter((e) => e.type === "ELITE_MONSTER_KILL" || e.type === "BUILDING_KILL");
+  const isAssist = (e: Json, pid: number) => ((e.assistingParticipantIds as number[]) ?? []).includes(pid);
+
+  for (const p of players) {
+    const pid = pidOf.get(p.puuid);
+    if (pid === undefined) continue;
+    const team = teamOf.get(pid)!;
+    const pos = posOf.get(pid) ?? "";
+    const myK = kills.filter((e) => num(e.killerId) === pid || isAssist(e, pid));
+    const myD = kills.filter((e) => num(e.victimId) === pid);
+    const tfIn = teamfights.filter((f) => f.some((e) => involved(e).has(pid)));
+    const teamTf = teamfights.filter((f) => f.some((e) => [...involved(e)].some((x) => teamOf.get(x) === team)));
+    let teamTfKills = 0;
+    for (const f of teamTf) for (const e of f) if (teamOf.get(num(e.killerId)) === team) teamTfKills++;
+    let kpNum = 0;
+    let tfDeaths = 0;
+    let openerWon = 0;
+    for (const f of tfIn) {
+      let mine = 0;
+      for (const e of f) if (teamOf.get(num(e.killerId)) === team) mine++;
+      const theirs = f.length - mine;
+      for (const e of f) {
+        if (num(e.killerId) === pid || isAssist(e, pid)) kpNum++;
+        if (num(e.victimId) === pid) tfDeaths++;
+      }
+      const recv = (f[0].victimDamageReceived as Json[]) ?? [];
+      if (recv.length && num(recv[0].participantId) === pid && mine > theirs) openerWon++;
+    }
+    const myObjs = objs.filter((e) =>
+      e.type === "ELITE_MONSTER_KILL"
+        ? (e.killerTeamId !== undefined && e.killerTeamId !== null ? num(e.killerTeamId) : teamOf.get(num(e.killerId))) === team
+        : num(e.teamId) !== team && num(e.killerId) !== 0
+    );
+    let part = 0;
+    for (const e of myObjs) {
+      if (involved(e).has(pid)) {
+        part++;
+        continue;
+      }
+      const at = pf(frameAt(num(e.timestamp), nf), pid)?.position;
+      if (at && dist(at, e.position as XY) <= 3500) part++;
+    }
+    const laner = pos === "TOP" || pos === "MIDDLE" || pos === "BOTTOM" || pos === "UTILITY";
+    const ownBand = pos === "UTILITY" ? "BOTTOM" : pos;
+    const roam = laner ? myK.filter((e) => num(e.timestamp) < 15 * MIN_MS && band(e.position as XY) !== ownBand).length : 0;
+    out[p.puuid] = {
+      tl_tf_survive: tfIn.length ? 1 - tfDeaths / tfIn.length : 0,
+      tl_tf_kp2: teamTfKills ? kpNum / teamTfKills : 0,
+      tl_opener_won: openerWon,
+      tl_obj_part_rate: myObjs.length ? part / myObjs.length : 0,
+      tl_roam_td: roam,
+      tl_neg_deaths_pre15: -myD.filter((e) => num(e.timestamp) < 15 * MIN_MS).length,
+    };
+  }
+  return out;
+}
+
+/** Merges timeline metrics into rows from computeGameMetrics (in place). */
+export function attachTimeline(rows: PlayerMetrics[], timeline: TimelineJson): PlayerMetrics[] {
+  const tl = computeTimelineMetrics(rows.map((r) => ({ puuid: r.puuid, teamId: r.teamId, position: r.position })), timeline);
+  for (const r of rows) Object.assign(r.metrics, tl[r.puuid] ?? {});
+  return rows;
+}
+
+/** True when a stored metrics map already carries the timeline block. */
+export const HAS_TIMELINE_KEY = "tl_tf_survive";
+
 // ---------------------------------------------------------------- baseline
 export type GroupBaseline = {
   n: number;
@@ -309,19 +469,31 @@ function weightsFor(r: PlayerMetrics, b: GroupBaseline): Record<string, number> 
 
 function rawZ(r: PlayerMetrics, b: GroupBaseline): { Z: number; dims: Record<string, number> } {
   const W = weightsFor(r, b);
+  const DIMS = DIMS_BY_MODE[(r.group as string).split("|")[0]];
   const dims: Record<string, number> = {};
-  let Z = 0;
+  const usedW: Record<string, number> = {};
   for (const [dim, wd] of Object.entries(W)) {
     let acc = 0;
     let tw = 0;
     for (const [k, wk] of Object.entries(DIMS[dim])) {
-      const { med, scale } = b.metrics[k];
-      acc += wk * clip(((r.metrics[k] ?? 0) - med) / (scale || 1e-9), -3, 3);
+      // A metric absent from the row (timeline not fetched) or from the
+      // baseline is skipped and the rest of the dimension re-weighted; a
+      // dimension with nothing left drops out and the role weights
+      // re-normalise. Scores stay comparable, just on fewer inputs.
+      const bm = b.metrics[k];
+      const v = r.metrics[k];
+      if (v === undefined || !bm) continue;
+      acc += wk * clip((v - bm.med) / (bm.scale || 1e-9), -3, 3);
       tw += wk;
     }
-    dims[dim] = acc / tw;
-    Z += wd * dims[dim];
+    if (tw > 0) {
+      dims[dim] = acc / tw;
+      usedW[dim] = wd;
+    }
   }
+  const tot = Object.values(usedW).reduce((a, v) => a + v, 0) || 1e-9;
+  let Z = 0;
+  for (const d of Object.keys(dims)) Z += (usedW[d] / tot) * dims[d];
   return { Z, dims };
 }
 

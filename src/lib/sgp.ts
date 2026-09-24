@@ -6,10 +6,19 @@ import "server-only";
 // real-name one in champions.json (that one now backs the schedule page's
 // searchable champion picker instead -- see ChampionCombobox).
 import championMap from "@/data/championTitles.json";
-import { computeGameMetrics, scoreGame, type Baseline, type PlayerMetrics } from "@/lib/rating";
+import {
+  HAS_TIMELINE_KEY,
+  attachTimeline,
+  computeGameMetrics,
+  scoreGame,
+  type Baseline,
+  type PlayerMetrics,
+  type TimelineJson,
+} from "@/lib/rating";
 import {
   MIN_TEAM_MEMBERS,
   SGP_BASE,
+  SGP_REGION_CODE,
   SYNC_SINCE_MS,
   matchesRoster,
   rosterNameByPuuid,
@@ -101,6 +110,70 @@ async function fetchPage(
   }
   const data = (await resp.json()) as { games?: Array<{ json?: Json } & Json> };
   return (data.games ?? []).map((game) => (game.json ?? game) as Json);
+}
+
+/**
+ * One game's timeline (Riot v5 shape: frames + events) via SGP's DETAILS
+ * info type. ~650 KB per game, so callers bound how many they pull per
+ * request -- see attachTimelines.
+ */
+export async function fetchTimeline(token: string, gameId: string): Promise<TimelineJson> {
+  const url = `${SGP_BASE}/match-history-query/v1/products/lol/${SGP_REGION_CODE}_${gameId}/DETAILS`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, "User-Agent": UA, Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (resp.status === 401) throw new SgpAuthError("token 已失效或过期（有效期 10 分钟），请重新获取后再试");
+  if (!resp.ok) throw new Error(`SGP DETAILS 请求失败: ${resp.status} ${resp.statusText}`);
+  const data = (await resp.json()) as { json?: TimelineJson } & TimelineJson;
+  return data.json ?? data;
+}
+
+const TIMELINE_QUEUES = new Set([420, 440]);
+// Sized against the route's 60s budget: 4 in flight, ~0.5s/request, ~650 KB
+// each. A pull of 1095 requests at this rate drew no 429s from Tencent.
+const TIMELINE_CONCURRENCY = 4;
+const TIMELINE_GAP_MS = 400;
+
+export function needsTimeline(g: GameRecord): boolean {
+  return TIMELINE_QUEUES.has(g.queueId) && g.players.some((p) => p.metrics && !(HAS_TIMELINE_KEY in p.metrics.metrics));
+}
+
+/**
+ * Fetches timelines for up to `limit` ranked games that don't have one yet
+ * and folds the tl_* metrics into their players. Failures are per game and
+ * non-fatal: the game keeps SUMMARY-only metrics and gets picked up by the
+ * next backfill. Returns how many were fetched / failed / still pending.
+ */
+export async function attachTimelines(
+  token: string,
+  records: GameRecord[],
+  limit: number,
+  deadlineMs: number
+): Promise<{ fetched: number; failed: number; pending: number }> {
+  const todo = records.filter(needsTimeline);
+  const batch = todo.slice(0, limit);
+  let fetched = 0;
+  let failed = 0;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < batch.length && Date.now() < deadlineMs) {
+      const g = batch[cursor++];
+      try {
+        const tl = await fetchTimeline(token, g.gameId);
+        const rows = g.players.map((p) => p.metrics).filter((m): m is PlayerMetrics => m !== null);
+        attachTimeline(rows, tl);
+        fetched++;
+      } catch (err) {
+        if (err instanceof SgpAuthError) throw err;
+        failed++;
+        console.warn(`[sgp] timeline for ${g.gameId} failed:`, err instanceof Error ? err.message : err);
+      }
+      await sleep(TIMELINE_GAP_MS);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(TIMELINE_CONCURRENCY, batch.length) }, worker));
+  return { fetched, failed, pending: todo.length - fetched };
 }
 
 export type FetchOptions = {

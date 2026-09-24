@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isDbConfigured, getKnownGameIds, getIncompleteGameIds, getRatedGameIds, insertGames } from "@/lib/db";
-import { SgpAuthError, syncAllRosterGames, applyRatings } from "@/lib/sgp";
+import { SgpAuthError, syncAllRosterGames, applyRatings, attachTimelines } from "@/lib/sgp";
 import { loadBaseline, saveZStats } from "@/lib/ratingBaseline";
 import { PRIOR_BASELINE, computeZStats, fitLiveBaseline, mergeBaselines, type PlayerMetrics } from "@/lib/rating";
 
@@ -50,7 +50,12 @@ const SYNC_TIME_BUDGET_MS = 45_000;
 // own LoL account (see lol_ranked_sync/README.md). It is used in-memory for
 // this one request only — never logged, never written to the database,
 // never echoed back in the response.
+// How many ranked games get their timeline pulled inside a routine sync.
+// Beyond this the remainder is left for the backfill route.
+const TIMELINE_PER_SYNC = 24;
+
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   if (!isDbConfigured()) {
     return NextResponse.json(
       { error: "数据库还没配置好（缺 POSTGRES_URL），先在 Vercel 项目里连一个 Postgres 存储。" },
@@ -97,6 +102,7 @@ export async function POST(req: NextRequest) {
     const newGames = games.filter((g) => !known.has(g.gameId));
     const repairedGames = games.filter((g) => known.has(g.gameId) && incomplete.has(g.gameId));
     const toStore = refreshAll ? games : [...newGames, ...repairedGames];
+    let timeline = { fetched: 0, failed: 0, pending: 0 };
     if (toStore.length) {
       // Routine sync: prior + whatever the DB already holds. refreshAll:
       // every game is in hand, so fit the live half from them directly and
@@ -110,6 +116,11 @@ export async function POST(req: NextRequest) {
         baseline = mergeBaselines(PRIOR_BASELINE, fitLiveBaseline(allRows), zstats);
         await saveZStats(zstats).catch((err: unknown) => console.warn("[matches/sync] zstats not cached:", err));
       }
+      // Timelines for the ranked games in this batch, bounded so a big
+      // backlog can't blow the 60s budget -- whatever doesn't fit is
+      // picked up by /api/matches/timeline-backfill (the 补全 timeline
+      // button), which is the intended path for refreshAll's backlog.
+      timeline = await attachTimelines(token, toStore, TIMELINE_PER_SYNC, startedAt + 45_000);
       applyRatings(toStore, baseline);
       await insertGames(toStore);
     }
@@ -119,6 +130,7 @@ export async function POST(req: NextRequest) {
       repairedGames: refreshAll ? 0 : repairedGames.length,
       totalGames: known.size + newGames.length,
       refreshedGames: refreshAll ? games.length : 0,
+      timeline,
       perPlayer,
       // false means there's more left than fit in this call's time budget
       // -- the frontend re-POSTs with the same token to pick up where this

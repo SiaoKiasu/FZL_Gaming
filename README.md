@@ -67,7 +67,7 @@ curl -X POST https://你的域名/api/auth/admin/set-password \
 
 `db/` 下的 `schema*.sql` 各跑一次即可（Vercel → Storage → Postgres → Query）。
 按文件名对应：视频功能是 `db/schema_video.sql`，账号是 `db/schema_auth.sql`，
-评分 v3 是 `db/schema_rating_v3.sql`（跑完后在战绩页勾「刷新旧对局」同步一次，历史对局才会按新规则重算）。
+评分 v3 是 `db/schema_rating_v3.sql`（跑完后在战绩页勾「刷新旧对局」同步一次，历史对局才会按新规则重算；再点「补全 timeline」把团战等维度补齐）。
 
 `db/seed_*.sql` 是本地调试假数据，**不要在生产库跑**。
 
@@ -92,4 +92,7 @@ curl -X POST https://你的域名/api/auth/admin/set-password \
 - MVP（胜方）/ SVP（败方）按「相对同职责、同胜负分布的残差」选，而不是直接选最高分——胜方分数本来就被胜利抬高，且下路比辅助抬得更多，直接选最高会把 MVP 系统性推给下路。
 - 出装会微调权重：比同职责中位更坦的出装，承伤权重上调、输出下调，最多 ±8%。
 
-改权重必须同时改 `lol_ranked_sync/rating.py`，两边有逐人一致性测试。
+- **timeline 维度（v3.1，仅峡谷）**：同步时会顺手为排位对局拉取 SGP 的 `DETAILS`（完整时间轴），据此多算一个「团战」维度（团战生存、团战击杀份额、开团先手且打赢、目标参与）并给资源 / 参团 / 生存三个维度各补一个指标（目标参与率、游走支援击杀、前 15 分钟死亡）。没拉到 timeline 的对局这些指标自动跳过、按其余维度计分，不会报错也不会显示假数值。
+- 每次常规同步最多顺带补 24 局 timeline；积压的用战绩页的「补全 timeline」按钮，它会自动分批续跑到全部补齐（每批 ≤40 局、≤45 秒，一个 token 的 10 分钟够补几百局）。
+
+改权重必须同时改 `lol_ranked_sync/rating.py`，两边有逐人一致性测试（含 timeline 指标）。

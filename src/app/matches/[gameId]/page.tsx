@@ -277,7 +277,10 @@ const zToRatio = (z: number) => Math.max(0, Math.min(200, 100 + z * 50));
 
 function buildV3Axes(p: StoredPlayer, allPlayers: StoredPlayer[]): HexAxis[] | null {
   if (!p.ratingDims || !p.ratingGroup) return null;
-  const dims = dimsForGroup(p.ratingGroup);
+  // Only the dimensions this row actually has a score for. A game synced
+  // before its timeline was fetched has no 团战 entry, and drawing it at the
+  // role average (z = 0, "超50%") would be a made-up number.
+  const dims = dimsForGroup(p.ratingGroup).filter((d) => d in p.ratingDims!);
   if (dims.length < 3) return null;
   const isSr = p.ratingGroup.startsWith("sr|");
   const rivals = isSr
