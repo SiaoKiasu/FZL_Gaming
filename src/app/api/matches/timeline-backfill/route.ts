@@ -24,6 +24,26 @@ const DEFAULT_LIMIT = 40;
 const CONCURRENCY = 4;
 const GAP_MS = 400;
 
+// GET -> just the current backlog count, no token needed. Lets the
+// frontend show/hide the "补全 timeline" button and its count on page
+// load, instead of only after a sync happens to surface a nonzero
+// pending count (which it may never do -- see POST /api/matches/sync:
+// its refreshAll stop-set is keyed on rating_dims, so games re-graded
+// before this timeline feature shipped are treated as "already done"
+// and skipped, and the button had no other way to learn about them).
+export async function GET() {
+  if (!isDbConfigured()) {
+    return NextResponse.json({ error: "数据库还没配置好" }, { status: 503 });
+  }
+  try {
+    const pending = await countGamesMissingTimeline();
+    return NextResponse.json({ pending });
+  } catch (err) {
+    console.error("[timeline-backfill] GET failed", err);
+    return NextResponse.json({ error: "查询失败，请重试" }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "数据库还没配置好" }, { status: 503 });

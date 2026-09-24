@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type SyncResult = {
   scannedGames: number;
@@ -24,10 +24,24 @@ export default function MatchSyncForm() {
   const [error, setError] = useState("");
   const [backfill, setBackfill] = useState<BackfillProgress | null>(null);
   const [backfilling, setBackfilling] = useState(false);
+  // Backlog count fetched once on mount, independent of ever running a
+  // sync -- see the GET handler in /api/matches/timeline-backfill for
+  // why this can't just wait for a sync result to report it (it may
+  // never happen to, for games rated before this feature shipped).
+  const [initialPending, setInitialPending] = useState<number | null>(null);
   // Set while a multi-round refreshAll (or just a big day-to-day) sync is
   // still going -- see the loop below. Empty once it's done (or it never
   // needed a second round in the first place).
   const [progressNote, setProgressNote] = useState("");
+
+  useEffect(() => {
+    fetch("/api/matches/timeline-backfill")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && typeof data.pending === "number") setInitialPending(data.pending);
+      })
+      .catch(() => {});
+  }, []);
 
   // 一次 /api/matches/sync 调用最多只处理 45 秒内能翻完的量（Vercel 60 秒
   // 硬顶，留点余量给写库），旧对局攒多了一次翻不完很正常。所以这里改成
@@ -91,9 +105,27 @@ export default function MatchSyncForm() {
       totals.timeline = lastTimeline;
       setResult(totals);
       setStatus("done");
+      // lastTimeline.pending only counts this run's own batch (0 whenever
+      // nothing new came in, even if a large pre-existing backlog is still
+      // sitting in the DB -- see attachTimelines in sgp.ts), so it can't
+      // decide whether to keep the token or show the backfill button.
+      // Re-check the real DB-wide count instead.
+      let stillPending = 0;
+      try {
+        const r = await fetch("/api/matches/timeline-backfill");
+        if (r.ok) {
+          const d = await r.json();
+          if (typeof d.pending === "number") {
+            stillPending = d.pending;
+            setInitialPending(d.pending);
+          }
+        }
+      } catch {
+        // leave initialPending as-is
+      }
       // Keep the token only if there's a timeline backlog to work through --
       // the backfill button below needs it. Otherwise drop it right away.
-      if (!(lastTimeline && lastTimeline.pending > 0)) setToken("");
+      if (stillPending === 0) setToken("");
       router.refresh();
     } catch {
       setError("网络错误，请重试");
@@ -139,7 +171,10 @@ export default function MatchSyncForm() {
     }
   }
 
-  const pendingTimeline = backfill?.pending ?? result?.timeline?.pending ?? 0;
+  // backfill.pending and initialPending are both real DB-wide counts
+  // (countGamesMissingTimeline()); result.timeline.pending is scoped to
+  // this run's batch only and isn't trustworthy for gating the button.
+  const pendingTimeline = backfill?.pending ?? initialPending ?? 0;
 
   return (
     <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
