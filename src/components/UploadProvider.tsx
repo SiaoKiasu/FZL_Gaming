@@ -20,6 +20,7 @@ export type UploadMeta = {
   title: string;
   champion: string;
   description: string;
+  keepAudio: boolean;
 };
 
 type Job = {
@@ -153,9 +154,11 @@ export default function UploadProvider({ children }: { children: React.ReactNode
       try {
         // 1. Encode in the browser. This is the stretch that needs the tab
         //    visible; everything after it does not.
-        const prepared = await prepareVideo(file, (phase, ratio) => {
-          setJob((j) => (j ? { ...j, phase, ratio } : j));
-        });
+        const prepared = await prepareVideo(
+          file,
+          (phase, ratio) => setJob((j) => (j ? { ...j, phase, ratio } : j)),
+          { keepAudio: meta.keepAudio }
+        );
         encodingRef.current = false;
 
         if (hiddenDuringEncodeRef.current && !prepared.skipped) {
@@ -209,10 +212,11 @@ export default function UploadProvider({ children }: { children: React.ReactNode
         const saved = await saveResp.json();
         if (!saveResp.ok) throw new Error(saved.error ?? "保存失败");
 
+        const sound = prepared.audio ? "" : meta.keepAudio ? "，浏览器不允许带声音录制，这条是无声的" : "，无声";
         setDone(
           prepared.skipped
-            ? `「${meta.title}」传好了（${formatMB(prepared.blob.size)}，原文件码率本来就不高，没再压）`
-            : `「${meta.title}」传好了（${formatMB(file.size)} → ${formatMB(prepared.blob.size)}）`
+            ? `「${meta.title}」传好了（${formatMB(prepared.blob.size)}，原文件码率本来就不高，没再压${sound}）`
+            : `「${meta.title}」传好了（${formatMB(file.size)} → ${formatMB(prepared.blob.size)}${sound}）`
         );
         router.refresh();
       } catch (err) {

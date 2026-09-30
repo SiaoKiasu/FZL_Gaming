@@ -18,6 +18,8 @@ type Run = {
   height: number;
   bitrate: number;
   seconds: number;
+  ext: string;
+  audio: boolean;
 };
 
 const HEIGHT_CHOICES = [720, 1080, 1440];
@@ -42,6 +44,7 @@ export default function QualityBench() {
   const [shown, setShown] = useState<Run | null>(null);
   const [maxHeight, setMaxHeight] = useState(1080);
   const [bitrateMbps, setBitrateMbps] = useState(2.0);
+  const [keepAudio, setKeepAudio] = useState(true);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("");
   const [ratio, setRatio] = useState(0);
@@ -66,6 +69,8 @@ export default function QualityBench() {
         height: probe.videoHeight,
         bitrate: seconds > 0 ? Math.round((file.size * 8) / seconds) : 0,
         seconds,
+        ext: file.name.split(".").pop() ?? "mp4",
+        audio: true,
       });
       setRuns([]);
       setShown(null);
@@ -92,6 +97,7 @@ export default function QualityBench() {
         {
           maxHeight,
           bitrate: Math.round(bitrateMbps * 1_000_000),
+          keepAudio,
           // Without this, an already-small mp4 would be passed through and
           // there would be nothing to compare.
           force: true,
@@ -99,7 +105,9 @@ export default function QualityBench() {
       );
       const entry: Run = {
         id: Date.now(),
-        label: `${maxHeight}p / ${bitrateMbps} Mbps`,
+        label: `${maxHeight}p / ${bitrateMbps} Mbps${result.audio ? " / 有声" : " / 无声"}`,
+        ext: result.ext,
+        audio: result.audio,
         url: URL.createObjectURL(result.blob),
         sizeBytes: result.blob.size,
         width: result.width,
@@ -183,6 +191,11 @@ export default function QualityBench() {
               className={`${inputClass} w-24`}
             />
             Mbps
+          </label>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={keepAudio} onChange={(e) => setKeepAudio(e.target.checked)} disabled={busy} className="accent-[var(--gold)]" />
+            保留声音
           </label>
 
           <button
@@ -301,9 +314,7 @@ export default function QualityBench() {
                     <td className="py-2">
                       <a
                         href={r.url}
-                        download={`fzl-${r.width}x${r.height}-${Math.round(
-                          r.bitrate / 1000
-                        )}k.webm`}
+                        download={`fzl-${r.width}x${r.height}-${Math.round(r.bitrate / 1000)}k.${r.ext}`}
                         onClick={(e) => e.stopPropagation()}
                         className="text-[var(--gold-soft)] underline"
                       >
