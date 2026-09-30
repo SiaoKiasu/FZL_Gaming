@@ -18,6 +18,7 @@ export default function VideoUploadForm() {
   const [title, setTitle] = useState("");
   const [champion, setChampion] = useState("");
   const [description, setDescription] = useState("");
+  const [keepAudio, setKeepAudio] = useState(true);
   const [error, setError] = useState("");
 
   const busy = job !== null;
@@ -33,6 +34,7 @@ export default function VideoUploadForm() {
       title: title.trim(),
       champion: champion.trim(),
       description: description.trim(),
+      keepAudio,
     });
 
     setTitle("");
@@ -83,8 +85,19 @@ export default function VideoUploadForm() {
         className="text-sm text-[var(--muted)] file:mr-3 file:rounded-sm file:border file:border-[var(--border)] file:bg-transparent file:px-3 file:py-2 file:text-sm file:text-[var(--foreground)]"
       />
 
+      <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+        <input
+          type="checkbox"
+          checked={keepAudio}
+          onChange={(e) => setKeepAudio(e.target.checked)}
+          disabled={busy}
+          className="accent-[var(--gold)]"
+        />
+        保留声音（游戏声 + 语音，约多占 6%）
+      </label>
+
       <p className="text-xs text-[var(--muted)]">
-        直接传录屏原文件就行，网页会自动压到 1080p / 2Mbps 并去掉声音
+        直接传录屏原文件就行，网页会自动压到 1080p / 2Mbps
         （20 秒左右的片段大概 5MB）。压缩这一步需要把视频完整播一遍，
         <span className="text-[var(--gold-soft)]">期间可以在站内随便翻页，但别切到别的标签页</span>
         ；压完之后的上传阶段就随便了。

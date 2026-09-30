@@ -13,8 +13,11 @@
 // canvas, capture the canvas as a MediaStream, and let MediaRecorder
 // re-encode it. ffmpeg.wasm would give finer control but costs a ~25 MB
 // download before the first byte is encoded -- absurd for 10-second clips.
-// A side effect of going through a canvas is that the audio track is
-// dropped, which is what we want anyway.
+// Going through a canvas drops the audio track, so the source element's
+// audio is routed through a WebAudio graph into a MediaStreamAudioDestination
+// and muxed back in. Highlights carry game sound AND voice chat, so the
+// audio bitrate stays at the common 128 kbps default rather than being
+// squeezed -- at 2 Mbps of video that's ~6% of the file.
 //
 // The cost of this approach: encoding happens in real time, because the
 // clip has to actually play. For the 10-20 second clips this feature is
@@ -34,6 +37,8 @@ export type TranscodeResult = {
   skipped: boolean;
   /** Bitrate actually handed to the encoder, in bits per second. */
   bitrate: number;
+  /** Whether the output carries an audio track. */
+  audio: boolean;
 };
 
 export type ProgressFn = (phase: string, ratio: number) => void;
@@ -49,6 +54,8 @@ export type TranscodeOptions = {
   bitrate?: number;
   /** Re-encode even when the original would normally be passed through. */
   force?: boolean;
+  /** Keep the sound (game audio + voice). Default true. */
+  keepAudio?: boolean;
 };
 
 const MAX_HEIGHT = 1080;
@@ -83,9 +90,12 @@ const SKIP_TRANSCODE_BYTES = 6 * 1024 * 1024;
 // where the browser can't record at all.
 const HARD_MAX_BYTES = 200 * 1024 * 1024;
 
+const AUDIO_BITRATE = 128_000;
+
+type MimeCandidate = { mimeType: string; ext: "mp4" | "webm" };
 // Ordered by preference. mp4/H.264 first: it is the only container that
 // plays everywhere, and notably iOS Safari's webm support is patchy.
-const MIME_CANDIDATES: ReadonlyArray<{ mimeType: string; ext: "mp4" | "webm" }> = [
+const MIME_VIDEO_ONLY: ReadonlyArray<MimeCandidate> = [
   { mimeType: "video/mp4;codecs=avc1.4d002a", ext: "mp4" },
   { mimeType: "video/mp4;codecs=avc1", ext: "mp4" },
   { mimeType: "video/mp4", ext: "mp4" },
@@ -93,10 +103,18 @@ const MIME_CANDIDATES: ReadonlyArray<{ mimeType: string; ext: "mp4" | "webm" }> 
   { mimeType: "video/webm;codecs=vp8", ext: "webm" },
   { mimeType: "video/webm", ext: "webm" },
 ];
+// With an audio codec spelled out, so a browser that can only record
+// silent mp4 falls through to webm+opus instead of quietly dropping sound.
+const MIME_WITH_AUDIO: ReadonlyArray<MimeCandidate> = [
+  { mimeType: "video/mp4;codecs=avc1.4d002a,mp4a.40.2", ext: "mp4" },
+  { mimeType: "video/mp4;codecs=avc1,mp4a.40.2", ext: "mp4" },
+  { mimeType: "video/webm;codecs=vp9,opus", ext: "webm" },
+  { mimeType: "video/webm;codecs=vp8,opus", ext: "webm" },
+];
 
-function pickMimeType(): { mimeType: string; ext: "mp4" | "webm" } | null {
+function pickMimeType(withAudio: boolean): MimeCandidate | null {
   if (typeof MediaRecorder === "undefined") return null;
-  for (const candidate of MIME_CANDIDATES) {
+  for (const candidate of withAudio ? MIME_WITH_AUDIO : MIME_VIDEO_ONLY) {
     if (MediaRecorder.isTypeSupported(candidate.mimeType)) return candidate;
   }
   return null;
@@ -119,11 +137,17 @@ function onNextFrame(video: HTMLVideoElement, cb: () => void): void {
   }
 }
 
-function loadVideo(file: File): Promise<HTMLVideoElement> {
+function loadVideo(file: File, muted: boolean): Promise<HTMLVideoElement> {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
     video.preload = "auto";
-    video.muted = true;
+    // Unmuted when audio is wanted: a MediaElementAudioSourceNode takes the
+    // element's output into the graph instead of the speakers, so nothing
+    // is heard either way. play() on an unmuted element needs the user
+    // activation the upload click provides; if a browser refuses anyway,
+    // prepareVideo retries muted without audio.
+    video.muted = muted;
+    video.volume = 1;
     // Required for play() to be allowed without a user gesture on iOS.
     video.playsInline = true;
     video.src = URL.createObjectURL(file);
@@ -192,12 +216,15 @@ async function capturePoster(
   });
 }
 
+class AutoplayRefused extends Error {}
+
 async function record(
   video: HTMLVideoElement,
   w: number,
   h: number,
   mimeType: string,
   bitrate: number,
+  withAudio: boolean,
   onProgress?: ProgressFn
 ): Promise<Blob> {
   const canvas = document.createElement("canvas");
@@ -206,10 +233,22 @@ async function record(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("浏览器不支持 canvas，没法压缩");
 
-  const stream = canvas.captureStream(30);
-  const recorder = new MediaRecorder(stream, {
+  const tracks: MediaStreamTrack[] = canvas.captureStream(30).getVideoTracks();
+  let audioCtx: AudioContext | null = null;
+  if (withAudio) {
+    // Element audio -> graph -> stream track. Not connected to the context's
+    // destination, so the encode stays silent for the uploader.
+    audioCtx = new AudioContext();
+    const source = audioCtx.createMediaElementSource(video);
+    const sink = audioCtx.createMediaStreamDestination();
+    source.connect(sink);
+    tracks.push(...sink.stream.getAudioTracks());
+    await audioCtx.resume().catch(() => {});
+  }
+  const recorder = new MediaRecorder(new MediaStream(tracks), {
     mimeType,
     videoBitsPerSecond: bitrate,
+    ...(withAudio ? { audioBitsPerSecond: AUDIO_BITRATE } : {}),
   });
 
   const chunks: BlobPart[] = [];
@@ -239,8 +278,12 @@ async function record(
     video.onerror = () => reject(new Error("压缩过程中视频读取失败"));
     video.play().then(
       () => onNextFrame(video, drawFrame),
-      () => reject(new Error("浏览器不让自动播放，没法压缩"))
+      () => reject(new AutoplayRefused("浏览器不让自动播放，没法压缩"))
     );
+  }).catch(async (err) => {
+    recorder.stop();
+    await audioCtx?.close().catch(() => {});
+    throw err;
   });
 
   // Let the encoder drain the last frames before cutting it off, otherwise
@@ -248,6 +291,7 @@ async function record(
   await new Promise((resolve) => setTimeout(resolve, 250));
   recorder.stop();
   await stopped;
+  await audioCtx?.close().catch(() => {});
 
   const blob = new Blob(chunks, { type: mimeType });
   if (blob.size === 0) throw new Error("压缩出来是空文件，换个视频试试");
@@ -261,12 +305,13 @@ export async function prepareVideo(
 ): Promise<TranscodeResult> {
   const maxHeight = options?.maxHeight ?? MAX_HEIGHT;
   const bitrate = options?.bitrate ?? TARGET_BITRATE;
+  const keepAudio = options?.keepAudio ?? true;
   if (file.size > HARD_MAX_BYTES) {
     throw new Error("文件超过 200MB，先用剪辑软件导出小一点的版本");
   }
 
   onProgress?.("读取视频", 0);
-  const video = await loadVideo(file);
+  let video = await loadVideo(file, !keepAudio);
   const durationSec = Number.isFinite(video.duration) ? video.duration : 0;
   const { w, h } = fitDimensions(video.videoWidth, video.videoHeight, maxHeight);
 
@@ -281,13 +326,22 @@ export async function prepareVideo(
     sourceBitrate > 0
       ? sourceBitrate <= bitrate * SKIP_BITRATE_MARGIN
       : file.size <= SKIP_TRANSCODE_BYTES;
+  // Stripping audio from an otherwise-fine file still needs a re-encode.
   const alreadyFine =
     !options?.force &&
+    keepAudio &&
     file.type === "video/mp4" &&
     alreadySmallEnough &&
     video.videoHeight <= maxHeight;
 
-  const target = pickMimeType();
+  // If no supported container can carry audio, degrade to a silent encode
+  // rather than fail the upload; the result reports audio: false.
+  let withAudio = keepAudio;
+  let target = pickMimeType(withAudio);
+  if (!target && withAudio) {
+    withAudio = false;
+    target = pickMimeType(false);
+  }
 
   if (alreadyFine || !target) {
     if (!target && file.type !== "video/mp4") {
@@ -306,10 +360,26 @@ export async function prepareVideo(
       poster,
       skipped: true,
       bitrate: Math.round(sourceBitrate),
+      // Passed through untouched, so it keeps whatever sound it had.
+      audio: true,
     };
   }
 
-  const blob = await record(video, w, h, target.mimeType, bitrate, onProgress);
+  let blob: Blob;
+  try {
+    blob = await record(video, w, h, target.mimeType, bitrate, withAudio, onProgress);
+  } catch (err) {
+    if (!(err instanceof AutoplayRefused) || !withAudio) throw err;
+    // Unmuted playback refused: redo it muted and without sound. A fresh
+    // element is needed -- createMediaElementSource binds to one for good.
+    URL.revokeObjectURL(video.src);
+    video = await loadVideo(file, true);
+    withAudio = false;
+    const silent = pickMimeType(false);
+    if (!silent) throw err;
+    target = silent;
+    blob = await record(video, w, h, target.mimeType, bitrate, false, onProgress);
+  }
   URL.revokeObjectURL(video.src);
 
   return {
@@ -322,5 +392,6 @@ export async function prepareVideo(
     poster,
     skipped: false,
     bitrate,
+    audio: withAudio,
   };
 }
